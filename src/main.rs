@@ -8,6 +8,7 @@ use eframe::{
 };
 use signal_processing::{
     filter::{
+        iir::precomputed::HIGH_PASS_FOR_DISPLAY_STRONG,
         pli::{adaptation_blocking::AdaptationBlocking, PowerLineFilter},
         Filter,
     },
@@ -146,6 +147,25 @@ impl Default for EkgTuner {
     }
 }
 
+fn apply_filter<F: Filter>(signal: &mut Ekg, filter: &mut F) {
+    signal.samples = signal
+        .samples
+        .iter()
+        .copied()
+        .filter_map(|sample| filter.update(sample as f32).map(f64::from))
+        .collect::<Vec<_>>();
+}
+
+fn apply_zero_phase_filter<F: Filter>(signal: &mut Ekg, filter: &mut F) {
+    apply_filter(signal, filter);
+    signal.samples.reverse();
+
+    filter.clear();
+
+    apply_filter(signal, filter);
+    signal.samples.reverse();
+}
+
 impl EkgTuner {
     fn first_tab(ui: &mut Ui, data: &mut Data) {
         ui.label(format!("Path: {}", data.path.display()));
@@ -163,42 +183,18 @@ impl EkgTuner {
             if data.filtered_ekg.is_none() {
                 let mut filtered = data.raw_ekg.clone();
                 if data.high_pass {
-                    // Zero-phase high-pass filtering
-                    let mut filter =
-                        signal_processing::filter::iir::precomputed::HIGH_PASS_FOR_DISPLAY_STRONG;
-
-                    let filtered_samples = filtered
-                        .samples
-                        .iter()
-                        .copied()
-                        .filter_map(|sample| filter.update(sample as f32))
-                        .collect::<Vec<_>>();
-
-                    let mut filter =
-                        signal_processing::filter::iir::precomputed::HIGH_PASS_FOR_DISPLAY_STRONG;
-
-                    let mut filtered_samples = filtered_samples
-                        .iter()
-                        .rev()
-                        .copied()
-                        .filter_map(|sample| filter.update(sample).map(f64::from))
-                        .collect::<Vec<_>>();
-
-                    filtered_samples.reverse();
-
-                    filtered.samples = filtered_samples;
+                    let mut high_pass = HIGH_PASS_FOR_DISPLAY_STRONG;
+                    apply_zero_phase_filter(&mut filtered, &mut high_pass);
                 }
 
                 if data.pli {
-                    let mut filter: PowerLineFilter<AdaptationBlocking<Sum<1200>, 50, 20>, 1> =
-                        PowerLineFilter::new(1000.0, [50.0]);
-
-                    filtered.samples = filtered
-                        .samples
-                        .iter()
-                        .copied()
-                        .filter_map(|sample| filter.update(sample as f32).map(f64::from))
-                        .collect::<Vec<_>>();
+                    apply_filter(
+                        &mut filtered,
+                        &mut PowerLineFilter::<AdaptationBlocking<Sum<1200>, 50, 20>, 1>::new(
+                            1000.0,
+                            [50.0],
+                        ),
+                    );
                 }
 
                 data.filtered_ekg = Some(filtered);
