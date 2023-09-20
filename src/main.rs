@@ -2,7 +2,10 @@
 
 use std::{env, path::PathBuf};
 
-use eframe::egui::{self, Ui};
+use eframe::{
+    egui::{self, Ui},
+    epaint::Color32,
+};
 
 fn main() -> Result<(), eframe::Error> {
     env::set_var("RUST_LOG", "card_io_tuner=debug");
@@ -70,12 +73,12 @@ impl Ekg {
         let mut samples = Vec::new();
 
         let mut last_sample = 0.0;
-        pub const VOLTS_PER_LSB: f64 = 2.42 / (1 << 23) as f64; // ADS129x
+        pub const VOLTS_PER_LSB: f64 = -2.42 / (1 << 23) as f64; // ADS129x
 
         while !bytes.is_empty() {
             let diff = load_varint_diff(&mut bytes, VOLTS_PER_LSB)?;
-            samples.push(last_sample - diff);
-            last_sample -= diff;
+            samples.push(last_sample + diff);
+            last_sample += diff;
         }
 
         log::debug!("Loaded {} samples", samples.len());
@@ -135,34 +138,55 @@ impl EkgTuner {
     }
 
     fn plot_signal(ui: &mut egui::Ui, ekg: &[f64]) -> egui::Response {
-        use egui_plot::{AxisBools, Line, PlotPoints};
+        use egui_plot::{AxisBools, GridMark, Line, PlotPoints};
 
-        let line = Line::new(
-            ekg.iter()
-                .enumerate()
-                .map(|(x, y)| [x as f64, *y])
-                .collect::<PlotPoints>(),
-        );
+        let mut marker = None;
 
-        let limits = ekg
-            .iter()
-            .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), y| {
-                (min.min(*y), max.max(*y))
-            });
-        let mid = (limits.1 + limits.0) / 2.0;
+        let mut lines = vec![];
+        let mut bottom = 0.0;
+        for section in ekg.chunks(10 * 1000) {
+            let (min, max) = section
+                .iter()
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), y| {
+                    (min.min(*y), max.max(*y))
+                });
 
-        let marker = Line::new(
-            [
-                [-0.04 * 1000.0, mid + 0.0],
-                [0.0 * 1000.0, mid + 0.0],
-                [0.0 * 1000.0, mid + 0.001],
-                [0.16 * 1000.0, mid + 0.001],
-                [0.16 * 1000.0, mid + 0.0],
-                [0.2 * 1000.0, mid + 0.0],
-            ]
-            .into_iter()
-            .collect::<PlotPoints>(),
-        );
+            let height = max - min;
+            let offset = max - bottom;
+            bottom -= height + 0.001; // 1mV margin
+
+            if marker.is_none() {
+                // to nearest 1mV
+                let min = ((min - offset) * 1000.0).ceil() / 1000.0;
+
+                marker = Some(
+                    Line::new(
+                        [
+                            [-0.04 * 1000.0, min + 0.0],
+                            [0.0 * 1000.0, min + 0.0],
+                            [0.0 * 1000.0, min + 0.001],
+                            [0.16 * 1000.0, min + 0.001],
+                            [0.16 * 1000.0, min + 0.0],
+                            [0.2 * 1000.0, min + 0.0],
+                        ]
+                        .into_iter()
+                        .collect::<PlotPoints>(),
+                    )
+                    .color(Color32::from_rgb(100, 200, 100)),
+                );
+            }
+
+            lines.push(
+                Line::new(
+                    section
+                        .iter()
+                        .enumerate()
+                        .map(|(x, y)| [x as f64, *y - offset])
+                        .collect::<PlotPoints>(),
+                )
+                .color(Color32::from_rgb(100, 150, 250)),
+            );
+        }
 
         egui_plot::Plot::new("ekg")
             .show_axes([false, false])
@@ -170,9 +194,63 @@ impl EkgTuner {
             .auto_bounds_y()
             .allow_scroll(false)
             .allow_zoom(AxisBools { x: false, y: true })
+            .x_grid_spacer(|input| {
+                let mut marks = vec![];
+
+                let (min, max) = input.bounds;
+                let min = min.floor() as i32;
+                let max = max.ceil() as i32;
+
+                for i in min..=max {
+                    let step_size = if i % 200 == 0 {
+                        200.0 // 200ms big square
+                    } else if i % 40 == 0 {
+                        40.0 // 40ms small square
+                    } else {
+                        continue;
+                    };
+
+                    marks.push(GridMark {
+                        value: i as f64,
+                        step_size,
+                    });
+                }
+
+                marks
+            })
+            .y_grid_spacer(|input| {
+                let mut marks = vec![];
+
+                const SCALE: f64 = 1_0000.0;
+
+                let (min, max) = input.bounds;
+                let min = (min * SCALE).floor() as i32;
+                let max = (max * SCALE).ceil() as i32;
+
+                for i in min..=max {
+                    let step_size = if i % 5 == 0 {
+                        0.0005 // 500uV big square
+                    } else if i % 1 == 0 {
+                        0.0001 // 100uV small square
+                    } else {
+                        continue;
+                    };
+
+                    marks.push(GridMark {
+                        value: i as f64 / SCALE,
+                        step_size,
+                    });
+                }
+
+                marks
+            })
             .show(ui, |plot_ui| {
-                plot_ui.line(line);
-                plot_ui.line(marker);
+                for line in lines {
+                    plot_ui.line(line);
+                }
+                if let Some(marker) = marker {
+                    plot_ui.line(marker);
+                }
             })
             .response
     }
