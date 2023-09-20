@@ -6,6 +6,7 @@ use eframe::{
     egui::{self, Ui},
     epaint::Color32,
 };
+use signal_processing::filter::Filter;
 
 fn main() -> Result<(), eframe::Error> {
     env::set_var("RUST_LOG", "card_io_tuner=debug");
@@ -20,6 +21,7 @@ fn main() -> Result<(), eframe::Error> {
     )
 }
 
+#[derive(Clone)]
 struct Ekg {
     samples: Vec<f64>,
 }
@@ -98,17 +100,28 @@ impl Ekg {
 struct Data {
     path: PathBuf,
     raw_ekg: Ekg,
+    filtered_ekg: Option<Ekg>,
+    high_pass: bool,
 }
 impl Data {
     fn load(path: PathBuf) -> Option<Self> {
         log::debug!("Loading {}", path.display());
         std::fs::read(&path).ok().and_then(|bytes| {
+            let ekg = Ekg::load(bytes).ok()?;
             Some(Data {
                 path,
-                raw_ekg: Ekg::load(bytes).ok()?,
+                raw_ekg: ekg,
+                filtered_ekg: None,
+                high_pass: true,
             })
         })
     }
+}
+
+#[derive(Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+enum Tabs {
+    First,
 }
 
 struct EkgTuner {
@@ -125,16 +138,50 @@ impl Default for EkgTuner {
     }
 }
 
-#[derive(Debug, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-enum Tabs {
-    First,
-}
-
 impl EkgTuner {
     fn first_tab(ui: &mut Ui, data: &mut Data) {
         ui.label(format!("Path: {}", data.path.display()));
-        Self::plot_signal(ui, &data.raw_ekg.samples);
+        ui.horizontal(|ui| {
+            if ui
+                .checkbox(&mut data.high_pass, "High-pass filter")
+                .changed()
+            {
+                data.filtered_ekg = None;
+            }
+
+            if data.filtered_ekg.is_none() {
+                let mut filtered = data.raw_ekg.clone();
+                if data.high_pass {
+                    // Zero-phase high-pass filtering
+                    let mut filter =
+                        signal_processing::filter::iir::precomputed::HIGH_PASS_FOR_DISPLAY_STRONG;
+
+                    let filtered_samples = filtered
+                        .samples
+                        .iter()
+                        .copied()
+                        .filter_map(|sample| filter.update(sample as f32))
+                        .collect::<Vec<_>>();
+
+                    let mut filter =
+                        signal_processing::filter::iir::precomputed::HIGH_PASS_FOR_DISPLAY_STRONG;
+
+                    let mut filtered_samples = filtered_samples
+                        .iter()
+                        .rev()
+                        .copied()
+                        .filter_map(|sample| filter.update(sample).map(f64::from))
+                        .collect::<Vec<_>>();
+
+                    filtered_samples.reverse();
+
+                    filtered.samples = filtered_samples;
+                }
+                data.filtered_ekg = Some(filtered);
+            }
+        });
+
+        Self::plot_signal(ui, &data.filtered_ekg.as_ref().unwrap().samples);
     }
 
     fn plot_signal(ui: &mut egui::Ui, ekg: &[f64]) -> egui::Response {
