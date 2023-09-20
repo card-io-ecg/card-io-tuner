@@ -121,7 +121,7 @@ impl Data {
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 enum Tabs {
-    First,
+    EKG,
 }
 
 struct EkgTuner {
@@ -133,7 +133,7 @@ impl Default for EkgTuner {
     fn default() -> Self {
         Self {
             data: None,
-            active_tab: Tabs::First,
+            active_tab: Tabs::EKG,
         }
     }
 }
@@ -313,11 +313,11 @@ impl eframe::App for EkgTuner {
             }
             if let Some(data) = self.data.as_mut() {
                 ui.horizontal(|ui| {
-                    ui.selectable_value(&mut self.active_tab, Tabs::First, "First");
+                    ui.selectable_value(&mut self.active_tab, Tabs::EKG, "EKG");
                 });
 
                 match self.active_tab {
-                    Tabs::First => Self::first_tab(ui, data),
+                    Tabs::EKG => Self::first_tab(ui, data),
                 }
             }
         });
