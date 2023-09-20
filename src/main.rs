@@ -6,7 +6,13 @@ use eframe::{
     egui::{self, Ui},
     epaint::Color32,
 };
-use signal_processing::filter::Filter;
+use signal_processing::{
+    filter::{
+        pli::{adaptation_blocking::AdaptationBlocking, PowerLineFilter},
+        Filter,
+    },
+    moving::sum::Sum,
+};
 
 fn main() -> Result<(), eframe::Error> {
     env::set_var("RUST_LOG", "card_io_tuner=debug");
@@ -102,6 +108,7 @@ struct Data {
     raw_ekg: Ekg,
     filtered_ekg: Option<Ekg>,
     high_pass: bool,
+    pli: bool,
 }
 impl Data {
     fn load(path: PathBuf) -> Option<Self> {
@@ -113,6 +120,7 @@ impl Data {
                 raw_ekg: ekg,
                 filtered_ekg: None,
                 high_pass: true,
+                pli: true,
             })
         })
     }
@@ -148,6 +156,9 @@ impl EkgTuner {
             {
                 data.filtered_ekg = None;
             }
+            if ui.checkbox(&mut data.pli, "PLI filter").changed() {
+                data.filtered_ekg = None;
+            }
 
             if data.filtered_ekg.is_none() {
                 let mut filtered = data.raw_ekg.clone();
@@ -177,6 +188,19 @@ impl EkgTuner {
 
                     filtered.samples = filtered_samples;
                 }
+
+                if data.pli {
+                    let mut filter: PowerLineFilter<AdaptationBlocking<Sum<1200>, 50, 20>, 1> =
+                        PowerLineFilter::new(1000.0, [50.0]);
+
+                    filtered.samples = filtered
+                        .samples
+                        .iter()
+                        .copied()
+                        .filter_map(|sample| filter.update(sample as f32).map(f64::from))
+                        .collect::<Vec<_>>();
+                }
+
                 data.filtered_ekg = Some(filtered);
             }
         });
