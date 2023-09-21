@@ -11,7 +11,7 @@ use rustfft::num_complex::{Complex, ComplexFloat};
 use signal_processing::{
     compressing_buffer::EkgFormat,
     filter::{
-        iir::precomputed::HIGH_PASS_FOR_DISPLAY_STRONG,
+        iir::{precomputed::HIGH_PASS_FOR_DISPLAY_STRONG, Iir, LowPass},
         pli::{adaptation_blocking::AdaptationBlocking, PowerLineFilter},
         Filter,
     },
@@ -84,6 +84,7 @@ struct Data {
     fft: Option<Vec<f32>>,
     high_pass: bool,
     pli: bool,
+    low_pass: bool,
 }
 
 impl Data {
@@ -99,6 +100,7 @@ impl Data {
                 fft: None,
                 high_pass: true,
                 pli: true,
+                low_pass: true,
             })
         })
     }
@@ -285,6 +287,10 @@ impl EkgTuner {
                     if ui.checkbox(&mut data.pli, "PLI filter").changed() {
                         data.filtered_ekg = None;
                     }
+
+                    if ui.checkbox(&mut data.low_pass, "Low-pass filter").changed() {
+                        data.filtered_ekg = None;
+                    }
                 });
             });
     }
@@ -326,6 +332,10 @@ impl EkgTuner {
                     if ui.checkbox(&mut data.pli, "PLI filter").changed() {
                         data.filtered_ekg = None;
                     }
+
+                    if ui.checkbox(&mut data.low_pass, "Low-pass filter").changed() {
+                        data.filtered_ekg = None;
+                    }
                 });
             });
     }
@@ -353,10 +363,6 @@ impl eframe::App for EkgTuner {
 
                 if data.filtered_ekg.is_none() {
                     let mut filtered = data.raw_ekg.clone();
-                    if data.high_pass {
-                        let mut high_pass = HIGH_PASS_FOR_DISPLAY_STRONG;
-                        apply_zero_phase_filter(&mut filtered, &mut high_pass);
-                    }
 
                     if data.pli {
                         apply_filter(
@@ -366,6 +372,22 @@ impl eframe::App for EkgTuner {
                                 [50.0],
                             ),
                         );
+                    }
+
+                    if data.high_pass {
+                        let mut high_pass = HIGH_PASS_FOR_DISPLAY_STRONG;
+                        apply_zero_phase_filter(&mut filtered, &mut high_pass);
+                    }
+
+                    if data.low_pass {
+                        #[rustfmt::skip]
+                        let mut low_pass: Iir<'static, LowPass, 2> = signal_processing::designfilt!(
+                            "lowpassiir",
+                            "FilterOrder", 2,
+                            "HalfPowerFrequency", 75,
+                            "SampleRate", 1000
+                        );
+                        apply_zero_phase_filter(&mut filtered, &mut low_pass);
                     }
 
                     data.filtered_ekg = Some(filtered);
