@@ -3,7 +3,7 @@
 use std::{env, path::PathBuf};
 
 use eframe::{
-    egui::{self, Ui},
+    egui::{self, PointerButton, Ui},
     epaint::Color32,
 };
 use egui_plot::{AxisBools, GridMark, Legend, Line, PlotPoints};
@@ -208,6 +208,7 @@ impl EkgTuner {
             .show_grid(true)
             .data_aspect(400.0) // 1 small square = 40ms = 0.1mV
             .allow_scroll(false)
+            .boxed_zoom_pointer_button(PointerButton::Middle)
             .x_grid_spacer(|input| {
                 let mut marks = vec![];
 
