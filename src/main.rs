@@ -205,7 +205,7 @@ impl EkgTuner {
     }
 
     fn plot_signal(ui: &mut egui::Ui, ekg: &[f64]) -> egui::Response {
-        use egui_plot::{AxisBools, GridMark, Line, PlotPoints};
+        use egui_plot::{AxisBools, GridMark, Legend, Line, PlotPoints};
 
         let mut marker = None;
 
@@ -251,12 +251,14 @@ impl EkgTuner {
                         .map(|(x, y)| [x as f64, *y - offset])
                         .collect::<PlotPoints>(),
                 )
-                .color(Color32::from_rgb(100, 150, 250)),
+                .color(Color32::from_rgb(100, 150, 250))
+                .name("EKG"),
             );
         }
 
         egui_plot::Plot::new("ekg")
-            .show_axes([false, false])
+            .legend(Legend::default())
+            .show_axes(false)
             .show_grid(true)
             .auto_bounds_y()
             .allow_scroll(false)
