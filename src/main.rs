@@ -169,49 +169,44 @@ fn apply_zero_phase_filter<F: Filter>(signal: &mut Ekg, filter: &mut F) {
 impl EkgTuner {
     fn first_tab(ui: &mut Ui, data: &mut Data) {
         ui.label(format!("Path: {}", data.path.display()));
-        ui.horizontal(|ui| {
-            if ui
-                .checkbox(&mut data.high_pass, "High-pass filter")
-                .changed()
-            {
-                data.filtered_ekg = None;
-            }
-            if ui.checkbox(&mut data.pli, "PLI filter").changed() {
-                data.filtered_ekg = None;
+
+        if data.filtered_ekg.is_none() {
+            let mut filtered = data.raw_ekg.clone();
+            if data.high_pass {
+                let mut high_pass = HIGH_PASS_FOR_DISPLAY_STRONG;
+                apply_zero_phase_filter(&mut filtered, &mut high_pass);
             }
 
-            if data.filtered_ekg.is_none() {
-                let mut filtered = data.raw_ekg.clone();
-                if data.high_pass {
-                    let mut high_pass = HIGH_PASS_FOR_DISPLAY_STRONG;
-                    apply_zero_phase_filter(&mut filtered, &mut high_pass);
-                }
-
-                if data.pli {
-                    apply_filter(
-                        &mut filtered,
-                        &mut PowerLineFilter::<AdaptationBlocking<Sum<1200>, 50, 20>, 1>::new(
-                            1000.0,
-                            [50.0],
-                        ),
-                    );
-                }
-
-                data.filtered_ekg = Some(filtered);
+            if data.pli {
+                apply_filter(
+                    &mut filtered,
+                    &mut PowerLineFilter::<AdaptationBlocking<Sum<1200>, 50, 20>, 1>::new(
+                        1000.0,
+                        [50.0],
+                    ),
+                );
             }
-        });
 
-        Self::plot_signal(ui, &data.filtered_ekg.as_ref().unwrap().samples);
+            data.filtered_ekg = Some(filtered);
+        }
+
+        Self::plot_signal(ui, data);
     }
 
-    fn plot_signal(ui: &mut egui::Ui, ekg: &[f64]) -> egui::Response {
+    fn plot_signal(ui: &mut egui::Ui, data: &mut Data) -> egui::Response {
         use egui_plot::{AxisBools, GridMark, Legend, Line, PlotPoints};
 
         let mut marker = None;
 
         let mut lines = vec![];
         let mut bottom = 0.0;
-        for section in ekg.chunks(10 * 1000) {
+        for section in data
+            .filtered_ekg
+            .as_ref()
+            .unwrap()
+            .samples
+            .chunks(10 * 1000)
+        {
             let (min, max) = section
                 .iter()
                 .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), y| {
@@ -322,6 +317,20 @@ impl EkgTuner {
                 }
             })
             .response
+            .context_menu(|ui| {
+                egui::Grid::new("filter_opts").show(ui, |ui| {
+                    if ui
+                        .checkbox(&mut data.high_pass, "High-pass filter")
+                        .changed()
+                    {
+                        data.filtered_ekg = None;
+                    }
+
+                    if ui.checkbox(&mut data.pli, "PLI filter").changed() {
+                        data.filtered_ekg = None;
+                    }
+                });
+            })
     }
 }
 
