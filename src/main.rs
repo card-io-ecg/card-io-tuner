@@ -11,7 +11,7 @@ use rustfft::num_complex::{Complex, ComplexFloat};
 use signal_processing::{
     compressing_buffer::EkgFormat,
     filter::{
-        iir::{precomputed::HIGH_PASS_FOR_DISPLAY_STRONG, Iir, LowPass},
+        iir::{HighPass, Iir, LowPass},
         pli::{adaptation_blocking::AdaptationBlocking, PowerLineFilter},
         Filter,
     },
@@ -368,13 +368,19 @@ impl eframe::App for EkgTuner {
                     }
 
                     if data.high_pass {
-                        let mut high_pass = HIGH_PASS_FOR_DISPLAY_STRONG;
+                        #[rustfmt::skip]
+                        let mut high_pass = signal_processing::designfilt!(
+                            "highpassiir",
+                            "FilterOrder", 2,
+                            "HalfPowerFrequency", 0.75,
+                            "SampleRate", 1000
+                        );
                         apply_zero_phase_filter(&mut filtered, &mut high_pass);
                     }
 
                     if data.low_pass {
                         #[rustfmt::skip]
-                        let mut low_pass: Iir<'static, LowPass, 2> = signal_processing::designfilt!(
+                        let mut low_pass = signal_processing::designfilt!(
                             "lowpassiir",
                             "FilterOrder", 2,
                             "HalfPowerFrequency", 75,
