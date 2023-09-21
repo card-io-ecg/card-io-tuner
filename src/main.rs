@@ -137,9 +137,7 @@ fn apply_zero_phase_filter<F: Filter>(signal: &mut Ekg, filter: &mut F) {
 }
 
 impl EkgTuner {
-    fn first_tab(ui: &mut Ui, data: &mut Data) {
-        ui.label(format!("Path: {}", data.path.display()));
-
+    fn ekg_tab(ui: &mut Ui, data: &mut Data) {
         if data.filtered_ekg.is_none() {
             let mut filtered = data.raw_ekg.clone();
             if data.high_pass {
@@ -307,18 +305,24 @@ impl EkgTuner {
 impl eframe::App for EkgTuner {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            if ui.button("Open file…").clicked() {
-                if let Some(path) = rfd::FileDialog::new().pick_file() {
-                    self.data = Data::load(path);
+            ui.horizontal(|ui| {
+                if ui.button("Open file").clicked() {
+                    if let Some(path) = rfd::FileDialog::new().pick_file() {
+                        self.data = Data::load(path);
+                    }
                 }
-            }
+
+                if let Some(data) = self.data.as_ref() {
+                    ui.label(data.path.display().to_string());
+                }
+            });
             if let Some(data) = self.data.as_mut() {
                 ui.horizontal(|ui| {
                     ui.selectable_value(&mut self.active_tab, Tabs::EKG, "EKG");
                 });
 
                 match self.active_tab {
-                    Tabs::EKG => Self::first_tab(ui, data),
+                    Tabs::EKG => Self::ekg_tab(ui, data),
                 }
             }
         });
