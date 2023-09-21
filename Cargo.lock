@@ -853,6 +853,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "embedded-io"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef1a6892d9eef45c8fa6b9e0086428a2cca8491aca8f787c534a3d6d0bcb3ced"
+
+[[package]]
 name = "enumflags2"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1500,12 +1506,12 @@ checksum = "b5e6163cb8c49088c2c36f57875e58ccd8c87c7427f7fbd50ea6710b2f3f2e8f"
 [[package]]
 name = "logger"
 version = "0.1.0"
-source = "git+https://github.com/card-io-ecg/card-io-fw.git#e5923796a8ab5b1c3e83642cf25c3caae3190dd9"
+source = "git+https://github.com/card-io-ecg/card-io-fw.git#8b6088ac388c80bc37193f79ad9e9f20ead5d21c"
 
 [[package]]
 name = "macros"
 version = "0.1.0"
-source = "git+https://github.com/card-io-ecg/card-io-fw.git#e5923796a8ab5b1c3e83642cf25c3caae3190dd9"
+source = "git+https://github.com/card-io-ecg/card-io-fw.git#8b6088ac388c80bc37193f79ad9e9f20ead5d21c"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -1525,9 +1531,9 @@ dependencies = [
 
 [[package]]
 name = "matrixmultiply"
-version = "0.3.7"
+version = "0.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "090126dc04f95dc0d1c1c91f61bdd474b3930ca064c1edc8a849da2c6cbe1e77"
+checksum = "7574c1cf36da4798ab73da5b215bbf444f50718207754cb522201d78d1cd0ff2"
 dependencies = [
  "autocfg",
  "rawpointer",
@@ -2324,8 +2330,9 @@ dependencies = [
 [[package]]
 name = "signal-processing"
 version = "0.1.0"
-source = "git+https://github.com/card-io-ecg/card-io-fw.git#e5923796a8ab5b1c3e83642cf25c3caae3190dd9"
+source = "git+https://github.com/card-io-ecg/card-io-fw.git#8b6088ac388c80bc37193f79ad9e9f20ead5d21c"
 dependencies = [
+ "embedded-io",
  "logger",
  "macros",
  "num-complex",

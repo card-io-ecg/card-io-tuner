@@ -7,6 +7,7 @@ use eframe::{
     epaint::Color32,
 };
 use signal_processing::{
+    compressing_buffer::EkgFormat,
     filter::{
         iir::precomputed::HIGH_PASS_FOR_DISPLAY_STRONG,
         pli::{adaptation_blocking::AdaptationBlocking, PowerLineFilter},
@@ -51,43 +52,12 @@ impl Ekg {
     }
 
     fn load_v0(mut bytes: &[u8]) -> Result<Self, ()> {
-        fn load_varint_diff(bytes: &mut &[u8], lsb: f64) -> Result<f64, ()> {
-            const fn zigzag_decode(val: u32) -> i32 {
-                (val >> 1) as i32 ^ -((val & 1) as i32)
-            }
-
-            fn pop(bytes: &mut &[u8]) -> Option<u8> {
-                if bytes.is_empty() {
-                    return None;
-                }
-                let byte = bytes[0];
-                *bytes = &bytes[1..];
-                Some(byte)
-            }
-
-            let mut diff = 0;
-            let mut idx = 0;
-            while let Some(byte) = pop(bytes) {
-                diff |= ((byte & 0x7F) as u32) << (idx * 7);
-                idx += 1;
-                if byte & 0x80 == 0 {
-                    break;
-                }
-            }
-            let diff = zigzag_decode(diff);
-
-            Ok(diff as f64 * lsb)
-        }
-
-        let mut samples = Vec::new();
-
-        let mut last_sample = 0.0;
         pub const VOLTS_PER_LSB: f64 = -2.42 / (1 << 23) as f64; // ADS129x
 
-        while !bytes.is_empty() {
-            let diff = load_varint_diff(&mut bytes, VOLTS_PER_LSB)?;
-            samples.push(last_sample + diff);
-            last_sample += diff;
+        let mut reader = EkgFormat::new();
+        let mut samples = Vec::new();
+        while let Some(sample) = reader.read(&mut bytes).unwrap() {
+            samples.push(sample as f64 * VOLTS_PER_LSB);
         }
 
         log::debug!("Loaded {} samples", samples.len());
