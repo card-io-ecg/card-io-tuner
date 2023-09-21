@@ -361,7 +361,7 @@ impl eframe::App for EkgTuner {
                     if data.pli {
                         apply_filter(
                             &mut filtered,
-                            &mut PowerLineFilter::<AdaptationBlocking<Sum<1200>, 50, 20>, 1>::new(
+                            &mut PowerLineFilter::<AdaptationBlocking<Sum<1200>, 4, 19>, 1>::new(
                                 data.fs as f32,
                                 [50.0],
                             ),
