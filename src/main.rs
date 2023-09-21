@@ -1,4 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
+#![feature(iter_map_windows)]
 
 use std::{env, path::PathBuf};
 
@@ -6,7 +7,7 @@ use eframe::{
     egui::{self, PointerButton, Ui},
     epaint::Color32,
 };
-use egui_plot::{AxisBools, GridMark, Legend, Line, PlotPoints};
+use egui_plot::{AxisBools, GridMark, Legend, Line, MarkerShape, PlotPoints, Points};
 use rustfft::num_complex::{Complex, ComplexFloat};
 use signal_processing::{
     compressing_buffer::EkgFormat,
@@ -16,6 +17,7 @@ use signal_processing::{
         pli::{adaptation_blocking::AdaptationBlocking, PowerLineFilter},
         Filter,
     },
+    heart_rate::HeartRateCalculator,
     moving::sum::Sum,
 };
 
@@ -83,6 +85,8 @@ struct Data {
     fs: f64,
     filtered_ekg: Option<Ekg>,
     fft: Option<Vec<f32>>,
+    hrs: Option<Vec<u32>>,
+    avg_hr: f32,
     high_pass: bool,
     pli: bool,
     low_pass: bool,
@@ -99,6 +103,8 @@ impl Data {
                 raw_ekg: ekg,
                 filtered_ekg: None,
                 fft: None,
+                hrs: None,
+                avg_hr: 0.0,
                 high_pass: true,
                 pli: true,
                 low_pass: true,
@@ -156,7 +162,10 @@ impl EkgTuner {
         let mut marker = None;
 
         let mut lines = vec![];
+        let mut hrs = vec![];
+
         let mut bottom = 0.0;
+        let mut idx = 0;
         for section in data.filtered_ekg.as_ref().unwrap().samples.chunks(6 * 1000) {
             let (min, max) = section
                 .iter()
@@ -200,6 +209,32 @@ impl EkgTuner {
                 .color(Color32::from_rgb(100, 150, 250))
                 .name("EKG"),
             );
+
+            hrs.push(
+                Points::new(
+                    data.hrs
+                        .as_ref()
+                        .unwrap()
+                        .iter()
+                        .filter_map(|hr_idx| {
+                            let hr_idx = *hr_idx as usize;
+                            if (idx..idx + section.len()).contains(&hr_idx) {
+                                let x = hr_idx - idx;
+                                let y = section[x] as f64 - offset as f64;
+                                Some([x as f64 / data.fs, y])
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<PlotPoints>(),
+                )
+                .color(Color32::LIGHT_RED)
+                .shape(MarkerShape::Asterisk)
+                .radius(4.0)
+                .name(format!("HR: {}", data.avg_hr.round() as i32)),
+            );
+
+            idx += section.len();
         }
 
         egui_plot::Plot::new("ekg")
@@ -264,6 +299,9 @@ impl EkgTuner {
             .show(ui, |plot_ui| {
                 for line in lines {
                     plot_ui.line(line);
+                }
+                for points in hrs {
+                    plot_ui.points(points);
                 }
                 if let Some(marker) = marker {
                     plot_ui.line(marker);
@@ -393,6 +431,7 @@ impl eframe::App for EkgTuner {
 
                     data.filtered_ekg = Some(filtered);
                     data.fft = None;
+                    data.hrs = None;
                 }
 
                 if data.fft.is_none() {
@@ -413,6 +452,29 @@ impl eframe::App for EkgTuner {
 
                     let fft = samples.iter().copied().map(|c| c.abs()).collect::<Vec<_>>();
                     data.fft = Some(fft);
+                }
+
+                if data.hrs.is_none() {
+                    let mut calculator = HeartRateCalculator::new(data.fs as f32);
+
+                    let mut hrs = Vec::new();
+                    const DELAY: u32 = 57; // The delay of the FIR filter in the calculator
+                    for sample in data.filtered_ekg.as_ref().unwrap().samples.iter() {
+                        if let Some(idx) = calculator.update(*sample) {
+                            hrs.push(idx - DELAY);
+                        }
+                    }
+
+                    let avg_hr = hrs
+                        .iter()
+                        .copied()
+                        .map_windows(|[a, b]| *b - *a)
+                        .map(|diff| 60.0 * data.fs as f32 / diff as f32)
+                        .sum::<f32>()
+                        / (hrs.len() as f32 - 1.0);
+
+                    data.avg_hr = avg_hr;
+                    data.hrs = Some(hrs);
                 }
 
                 match self.active_tab {
