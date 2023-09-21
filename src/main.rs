@@ -10,6 +10,7 @@ use egui_plot::{AxisBools, GridMark, Legend, Line, PlotPoints};
 use rustfft::num_complex::{Complex, ComplexFloat};
 use signal_processing::{
     compressing_buffer::EkgFormat,
+    designfilt,
     filter::{
         iir::{HighPass, Iir, LowPass},
         pli::{adaptation_blocking::AdaptationBlocking, PowerLineFilter},
@@ -369,7 +370,7 @@ impl eframe::App for EkgTuner {
 
                     if data.high_pass {
                         #[rustfmt::skip]
-                        let mut high_pass = signal_processing::designfilt!(
+                        let mut high_pass = designfilt!(
                             "highpassiir",
                             "FilterOrder", 2,
                             "HalfPowerFrequency", 0.75,
@@ -380,7 +381,7 @@ impl eframe::App for EkgTuner {
 
                     if data.low_pass {
                         #[rustfmt::skip]
-                        let mut low_pass = signal_processing::designfilt!(
+                        let mut low_pass = designfilt!(
                             "lowpassiir",
                             "FilterOrder", 2,
                             "HalfPowerFrequency", 75,
