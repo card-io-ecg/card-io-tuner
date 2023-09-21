@@ -480,6 +480,7 @@ dependencies = [
  "env_logger",
  "log",
  "rfd",
+ "rustfft",
  "signal-processing",
 ]
 

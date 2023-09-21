@@ -6,6 +6,8 @@ use eframe::{
     egui::{self, Ui},
     epaint::Color32,
 };
+use egui_plot::{AxisBools, GridMark, Legend, Line, PlotPoints};
+use rustfft::num_complex::{Complex, ComplexFloat};
 use signal_processing::{
     compressing_buffer::EkgFormat,
     filter::{
@@ -77,10 +79,13 @@ impl Ekg {
 struct Data {
     path: PathBuf,
     raw_ekg: Ekg,
+    fs: f64,
     filtered_ekg: Option<Ekg>,
+    fft: Option<Vec<f32>>,
     high_pass: bool,
     pli: bool,
 }
+
 impl Data {
     fn load(path: PathBuf) -> Option<Self> {
         log::debug!("Loading {}", path.display());
@@ -88,8 +93,10 @@ impl Data {
             let ekg = Ekg::load(bytes).ok()?;
             Some(Data {
                 path,
+                fs: 1000.0,
                 raw_ekg: ekg,
                 filtered_ekg: None,
+                fft: None,
                 high_pass: true,
                 pli: true,
             })
@@ -101,6 +108,7 @@ impl Data {
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 enum Tabs {
     EKG,
+    FFT,
 }
 
 struct EkgTuner {
@@ -138,32 +146,10 @@ fn apply_zero_phase_filter<F: Filter>(signal: &mut Ekg, filter: &mut F) {
 
 impl EkgTuner {
     fn ekg_tab(ui: &mut Ui, data: &mut Data) {
-        if data.filtered_ekg.is_none() {
-            let mut filtered = data.raw_ekg.clone();
-            if data.high_pass {
-                let mut high_pass = HIGH_PASS_FOR_DISPLAY_STRONG;
-                apply_zero_phase_filter(&mut filtered, &mut high_pass);
-            }
-
-            if data.pli {
-                apply_filter(
-                    &mut filtered,
-                    &mut PowerLineFilter::<AdaptationBlocking<Sum<1200>, 50, 20>, 1>::new(
-                        1000.0,
-                        [50.0],
-                    ),
-                );
-            }
-
-            data.filtered_ekg = Some(filtered);
-        }
-
         Self::plot_signal(ui, data);
     }
 
-    fn plot_signal(ui: &mut egui::Ui, data: &mut Data) -> egui::Response {
-        use egui_plot::{AxisBools, GridMark, Legend, Line, PlotPoints};
-
+    fn plot_signal(ui: &mut egui::Ui, data: &mut Data) {
         let mut marker = None;
 
         let mut lines = vec![];
@@ -183,21 +169,21 @@ impl EkgTuner {
 
             let height = max - min;
             let offset = max - bottom;
-            bottom -= height + 0.001; // 1mV margin
+            bottom -= height + 0.0005; // 500uV margin
 
             if marker.is_none() {
                 // to nearest 1mV
-                let min = ((min - offset) as f64 * 1000.0).ceil() / 1000.0;
+                let min = ((min - offset) as f64 * data.fs).ceil() / data.fs;
 
                 marker = Some(
                     Line::new(
                         [
-                            [-0.04 * 1000.0, min + 0.0],
-                            [0.0 * 1000.0, min + 0.0],
-                            [0.0 * 1000.0, min + 0.001],
-                            [0.16 * 1000.0, min + 0.001],
-                            [0.16 * 1000.0, min + 0.0],
-                            [0.2 * 1000.0, min + 0.0],
+                            [-0.04, min + 0.0],
+                            [0.0, min + 0.0],
+                            [0.0, min + 0.001],
+                            [0.16, min + 0.001],
+                            [0.16, min + 0.0],
+                            [0.2, min + 0.0],
                         ]
                         .into_iter()
                         .collect::<PlotPoints>(),
@@ -211,7 +197,7 @@ impl EkgTuner {
                     section
                         .iter()
                         .enumerate()
-                        .map(|(x, y)| [x as f64, (*y - offset) as f64])
+                        .map(|(x, y)| [x as f64 / data.fs, (*y - offset) as f64])
                         .collect::<PlotPoints>(),
                 )
                 .color(Color32::from_rgb(100, 150, 250))
@@ -229,21 +215,23 @@ impl EkgTuner {
             .x_grid_spacer(|input| {
                 let mut marks = vec![];
 
+                const SCALE: f64 = 100.0;
+
                 let (min, max) = input.bounds;
-                let min = min.floor() as i32;
-                let max = max.ceil() as i32;
+                let min = (min * SCALE).floor() as i32;
+                let max = (max * SCALE).ceil() as i32;
 
                 for i in min..=max {
-                    let step_size = if i % 200 == 0 {
-                        200.0 // 200ms big square
-                    } else if i % 40 == 0 {
-                        40.0 // 40ms small square
+                    let step_size = if i % 20 == 0 {
+                        0.200 // 200ms big square
+                    } else if i % 4 == 0 {
+                        0.04 // 40ms small square
                     } else {
                         continue;
                     };
 
                     marks.push(GridMark {
-                        value: i as f64,
+                        value: i as f64 / SCALE,
                         step_size,
                     });
                 }
@@ -298,7 +286,48 @@ impl EkgTuner {
                         data.filtered_ekg = None;
                     }
                 });
+            });
+    }
+
+    fn fft_tab(ui: &mut Ui, data: &mut Data) {
+        let fft = data.fft.as_ref().unwrap();
+
+        let fft = Line::new(
+            fft.iter()
+                .skip(1 - data.high_pass as usize) // skip DC if high-pass is off
+                .take(fft.len() / 2)
+                .enumerate()
+                .map(|(x, y)| [x as f64 * data.fs / fft.len() as f64, *y as f64])
+                .collect::<PlotPoints>(),
+        )
+        .color(Color32::from_rgb(100, 150, 250))
+        .name("FFT");
+
+        egui_plot::Plot::new("fft")
+            .legend(Legend::default())
+            .show_axes(false)
+            .show_grid(true)
+            .auto_bounds_y()
+            .allow_scroll(false)
+            .allow_zoom(AxisBools { x: false, y: true })
+            .show(ui, |plot_ui| {
+                plot_ui.line(fft);
             })
+            .response
+            .context_menu(|ui| {
+                egui::Grid::new("filter_opts").show(ui, |ui| {
+                    if ui
+                        .checkbox(&mut data.high_pass, "High-pass filter")
+                        .changed()
+                    {
+                        data.filtered_ekg = None;
+                    }
+
+                    if ui.checkbox(&mut data.pli, "PLI filter").changed() {
+                        data.filtered_ekg = None;
+                    }
+                });
+            });
     }
 }
 
@@ -319,10 +348,53 @@ impl eframe::App for EkgTuner {
             if let Some(data) = self.data.as_mut() {
                 ui.horizontal(|ui| {
                     ui.selectable_value(&mut self.active_tab, Tabs::EKG, "EKG");
+                    ui.selectable_value(&mut self.active_tab, Tabs::FFT, "FFT");
                 });
+
+                if data.filtered_ekg.is_none() {
+                    let mut filtered = data.raw_ekg.clone();
+                    if data.high_pass {
+                        let mut high_pass = HIGH_PASS_FOR_DISPLAY_STRONG;
+                        apply_zero_phase_filter(&mut filtered, &mut high_pass);
+                    }
+
+                    if data.pli {
+                        apply_filter(
+                            &mut filtered,
+                            &mut PowerLineFilter::<AdaptationBlocking<Sum<1200>, 50, 20>, 1>::new(
+                                data.fs as f32,
+                                [50.0],
+                            ),
+                        );
+                    }
+
+                    data.filtered_ekg = Some(filtered);
+                    data.fft = None;
+                }
+
+                if data.fft.is_none() {
+                    let mut samples = data
+                        .filtered_ekg
+                        .as_ref()
+                        .unwrap()
+                        .samples
+                        .iter()
+                        .copied()
+                        .map(|y| Complex { re: y, im: 0.0 })
+                        .collect::<Vec<_>>();
+
+                    let mut planner = rustfft::FftPlanner::new();
+                    let fft = planner.plan_fft_forward(samples.len());
+
+                    fft.process(&mut samples);
+
+                    let fft = samples.iter().copied().map(|c| c.abs()).collect::<Vec<_>>();
+                    data.fft = Some(fft);
+                }
 
                 match self.active_tab {
                     Tabs::EKG => Self::ekg_tab(ui, data),
+                    Tabs::FFT => Self::fft_tab(ui, data),
                 }
             }
         });
