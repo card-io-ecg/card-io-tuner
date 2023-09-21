@@ -31,7 +31,7 @@ fn main() -> Result<(), eframe::Error> {
 
 #[derive(Clone)]
 struct Ekg {
-    samples: Vec<f64>,
+    samples: Vec<f32>,
 }
 
 impl Ekg {
@@ -52,12 +52,12 @@ impl Ekg {
     }
 
     fn load_v0(mut bytes: &[u8]) -> Result<Self, ()> {
-        pub const VOLTS_PER_LSB: f64 = -2.42 / (1 << 23) as f64; // ADS129x
+        pub const VOLTS_PER_LSB: f32 = -2.42 / (1 << 23) as f32; // ADS129x
 
         let mut reader = EkgFormat::new();
         let mut samples = Vec::new();
         while let Some(sample) = reader.read(&mut bytes).unwrap() {
-            samples.push(sample as f64 * VOLTS_PER_LSB);
+            samples.push(sample as f32 * VOLTS_PER_LSB);
         }
 
         log::debug!("Loaded {} samples", samples.len());
@@ -122,7 +122,7 @@ fn apply_filter<F: Filter>(signal: &mut Ekg, filter: &mut F) {
         .samples
         .iter()
         .copied()
-        .filter_map(|sample| filter.update(sample as f32).map(f64::from))
+        .filter_map(|sample| filter.update(sample))
         .collect::<Vec<_>>();
 }
 
@@ -177,7 +177,7 @@ impl EkgTuner {
         {
             let (min, max) = section
                 .iter()
-                .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), y| {
+                .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), y| {
                     (min.min(*y), max.max(*y))
                 });
 
@@ -187,7 +187,7 @@ impl EkgTuner {
 
             if marker.is_none() {
                 // to nearest 1mV
-                let min = ((min - offset) * 1000.0).ceil() / 1000.0;
+                let min = ((min - offset) as f64 * 1000.0).ceil() / 1000.0;
 
                 marker = Some(
                     Line::new(
@@ -211,7 +211,7 @@ impl EkgTuner {
                     section
                         .iter()
                         .enumerate()
-                        .map(|(x, y)| [x as f64, *y - offset])
+                        .map(|(x, y)| [x as f64, (*y - offset) as f64])
                         .collect::<PlotPoints>(),
                 )
                 .color(Color32::from_rgb(100, 150, 250))
