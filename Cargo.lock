@@ -755,7 +755,7 @@ checksum = "9ea835d29036a4087793836fa931b08837ad5e957da9e23886b29586fb9b6650"
 [[package]]
 name = "ecolor"
 version = "0.22.0"
-source = "git+https://github.com/emilk/egui.git#c07394b5766053fcdb5cb506e369f60a535a4800"
+source = "git+https://github.com/emilk/egui.git#33a0f50f6a80fe28a6430de7c70d6da79ebba2d5"
 dependencies = [
  "bytemuck",
 ]
@@ -763,7 +763,7 @@ dependencies = [
 [[package]]
 name = "eframe"
 version = "0.22.0"
-source = "git+https://github.com/emilk/egui.git#c07394b5766053fcdb5cb506e369f60a535a4800"
+source = "git+https://github.com/emilk/egui.git#33a0f50f6a80fe28a6430de7c70d6da79ebba2d5"
 dependencies = [
  "bytemuck",
  "cocoa",
@@ -792,7 +792,7 @@ dependencies = [
 [[package]]
 name = "egui"
 version = "0.22.0"
-source = "git+https://github.com/emilk/egui.git#c07394b5766053fcdb5cb506e369f60a535a4800"
+source = "git+https://github.com/emilk/egui.git#33a0f50f6a80fe28a6430de7c70d6da79ebba2d5"
 dependencies = [
  "accesskit",
  "ahash",
@@ -804,7 +804,7 @@ dependencies = [
 [[package]]
 name = "egui-winit"
 version = "0.22.0"
-source = "git+https://github.com/emilk/egui.git#c07394b5766053fcdb5cb506e369f60a535a4800"
+source = "git+https://github.com/emilk/egui.git#33a0f50f6a80fe28a6430de7c70d6da79ebba2d5"
 dependencies = [
  "accesskit_winit",
  "arboard",
@@ -820,7 +820,7 @@ dependencies = [
 [[package]]
 name = "egui_glow"
 version = "0.22.0"
-source = "git+https://github.com/emilk/egui.git#c07394b5766053fcdb5cb506e369f60a535a4800"
+source = "git+https://github.com/emilk/egui.git#33a0f50f6a80fe28a6430de7c70d6da79ebba2d5"
 dependencies = [
  "bytemuck",
  "egui",
@@ -834,7 +834,7 @@ dependencies = [
 [[package]]
 name = "egui_plot"
 version = "0.22.0"
-source = "git+https://github.com/emilk/egui.git#c07394b5766053fcdb5cb506e369f60a535a4800"
+source = "git+https://github.com/emilk/egui.git#33a0f50f6a80fe28a6430de7c70d6da79ebba2d5"
 dependencies = [
  "egui",
 ]
@@ -848,7 +848,7 @@ checksum = "a26ae43d7bcc3b814de94796a5e736d4029efb0ee900c12e2d54c993ad1a1e07"
 [[package]]
 name = "emath"
 version = "0.22.0"
-source = "git+https://github.com/emilk/egui.git#c07394b5766053fcdb5cb506e369f60a535a4800"
+source = "git+https://github.com/emilk/egui.git#33a0f50f6a80fe28a6430de7c70d6da79ebba2d5"
 dependencies = [
  "bytemuck",
 ]
@@ -896,7 +896,7 @@ dependencies = [
 [[package]]
 name = "epaint"
 version = "0.22.0"
-source = "git+https://github.com/emilk/egui.git#c07394b5766053fcdb5cb506e369f60a535a4800"
+source = "git+https://github.com/emilk/egui.git#33a0f50f6a80fe28a6430de7c70d6da79ebba2d5"
 dependencies = [
  "ab_glyph",
  "ahash",
@@ -1507,12 +1507,12 @@ checksum = "b5e6163cb8c49088c2c36f57875e58ccd8c87c7427f7fbd50ea6710b2f3f2e8f"
 [[package]]
 name = "logger"
 version = "0.1.0"
-source = "git+https://github.com/card-io-ecg/card-io-fw.git#8b6088ac388c80bc37193f79ad9e9f20ead5d21c"
+source = "git+https://github.com/card-io-ecg/card-io-fw.git#e3e0d53f9a8c370ba241a73dfd64868b99c7a516"
 
 [[package]]
 name = "macros"
 version = "0.1.0"
-source = "git+https://github.com/card-io-ecg/card-io-fw.git#8b6088ac388c80bc37193f79ad9e9f20ead5d21c"
+source = "git+https://github.com/card-io-ecg/card-io-fw.git#e3e0d53f9a8c370ba241a73dfd64868b99c7a516"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -2331,7 +2331,7 @@ dependencies = [
 [[package]]
 name = "signal-processing"
 version = "0.1.0"
-source = "git+https://github.com/card-io-ecg/card-io-fw.git#8b6088ac388c80bc37193f79ad9e9f20ead5d21c"
+source = "git+https://github.com/card-io-ecg/card-io-fw.git#e3e0d53f9a8c370ba241a73dfd64868b99c7a516"
 dependencies = [
  "embedded-io",
  "logger",
