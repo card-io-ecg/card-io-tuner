@@ -156,13 +156,7 @@ impl EkgTuner {
 
         let mut lines = vec![];
         let mut bottom = 0.0;
-        for section in data
-            .filtered_ekg
-            .as_ref()
-            .unwrap()
-            .samples
-            .chunks(10 * 1000)
-        {
+        for section in data.filtered_ekg.as_ref().unwrap().samples.chunks(6 * 1000) {
             let (min, max) = section
                 .iter()
                 .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), y| {
@@ -211,9 +205,8 @@ impl EkgTuner {
             .legend(Legend::default())
             .show_axes(false)
             .show_grid(true)
-            .auto_bounds_y()
+            .data_aspect(400.0) // 1 small square = 40ms = 0.1mV
             .allow_scroll(false)
-            .allow_zoom(AxisBools { x: false, y: true })
             .x_grid_spacer(|input| {
                 let mut marks = vec![];
 
