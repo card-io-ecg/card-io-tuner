@@ -1,7 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![feature(iter_map_windows)]
 
-use std::{env, path::PathBuf};
+use std::{
+    cell::{Ref, RefCell},
+    env,
+    path::PathBuf,
+};
 
 use eframe::{
     egui::{self, PointerButton, Ui},
@@ -79,21 +83,58 @@ impl Ekg {
     }
 }
 
+struct HrData {
+    detections: Vec<usize>,
+    thresholds: Vec<Thresholds>,
+    complex_lead: Vec<f32>,
+    avg_hr: f32,
+}
+
+struct DataCell<T> {
+    data: RefCell<Option<T>>,
+}
+
+impl<T> DataCell<T> {
+    fn new() -> Self {
+        Self {
+            data: RefCell::new(None),
+        }
+    }
+
+    fn get(&self, initializer: impl FnOnce() -> T) -> Ref<'_, T> {
+        if self.data.borrow().is_none() {
+            *self.data.borrow_mut() = Some(initializer());
+        }
+
+        Ref::map(self.data.borrow(), |data| {
+            data.as_ref().expect("data should be Some")
+        })
+    }
+
+    fn clear(&mut self) {
+        self.data.borrow_mut().take();
+    }
+}
+
+struct ProcessedSignal {
+    filtered_ekg: DataCell<Ekg>,
+    fft: DataCell<Vec<f32>>,
+    hrs: DataCell<HrData>,
+}
+
 struct Data {
     path: PathBuf,
     raw_ekg: Ekg,
     fs: f64,
-    filtered_ekg: Option<Ekg>,
-    fft: Option<Vec<f32>>,
-    hrs: Option<Vec<usize>>,
-    hr_thresholds: Option<Vec<Thresholds>>,
-    hr_complex_lead: Option<Vec<f32>>,
-    avg_hr: f32,
+    processed: ProcessedSignal,
+    filter_config: FilterConfig,
+    hr_debug: bool,
+}
 
+struct FilterConfig {
     high_pass: bool,
     pli: bool,
     low_pass: bool,
-    hr_debug: bool,
 }
 
 impl Data {
@@ -105,25 +146,26 @@ impl Data {
                 path,
                 fs: 1000.0,
                 raw_ekg: ekg,
-                filtered_ekg: None,
-                fft: None,
-                hrs: None,
-                hr_thresholds: None,
-                hr_complex_lead: None,
-                avg_hr: 0.0,
-                high_pass: true,
-                pli: true,
-                low_pass: true,
+                processed: ProcessedSignal {
+                    filtered_ekg: DataCell::new(),
+                    fft: DataCell::new(),
+                    hrs: DataCell::new(),
+                },
+                filter_config: FilterConfig {
+                    high_pass: true,
+                    pli: true,
+                    low_pass: true,
+                },
                 hr_debug: false,
             })
         })
     }
 
-    fn update(&mut self) {
-        if self.filtered_ekg.is_none() {
+    fn filtered_ekg(&self) -> Ref<'_, Ekg> {
+        self.processed.filtered_ekg.get(|| {
             let mut filtered = self.raw_ekg.clone();
 
-            if self.pli {
+            if self.filter_config.pli {
                 apply_filter(
                     &mut filtered,
                     &mut PowerLineFilter::<AdaptationBlocking<Sum<1200>, 4, 19>, 1>::new(
@@ -133,7 +175,7 @@ impl Data {
                 );
             }
 
-            if self.high_pass {
+            if self.filter_config.high_pass {
                 #[rustfmt::skip]
                 let mut high_pass = designfilt!(
                     "highpassiir",
@@ -144,7 +186,7 @@ impl Data {
                 apply_zero_phase_filter(&mut filtered, &mut high_pass);
             }
 
-            if self.low_pass {
+            if self.filter_config.low_pass {
                 #[rustfmt::skip]
                 let mut low_pass = designfilt!(
                     "lowpassiir",
@@ -155,16 +197,14 @@ impl Data {
                 apply_zero_phase_filter(&mut filtered, &mut low_pass);
             }
 
-            self.filtered_ekg = Some(filtered);
-            self.fft = None;
-            self.hrs = None;
-        }
+            filtered
+        })
+    }
 
-        if self.fft.is_none() {
+    fn fft(&self) -> Ref<'_, Vec<f32>> {
+        self.processed.fft.get(|| {
             let mut samples = self
-                .filtered_ekg
-                .as_ref()
-                .unwrap()
+                .filtered_ekg()
                 .samples
                 .iter()
                 .copied()
@@ -176,19 +216,28 @@ impl Data {
 
             fft.process(&mut samples);
 
-            let fft = samples.iter().copied().map(|c| c.abs()).collect::<Vec<_>>();
-            self.fft = Some(fft);
-        }
+            samples.iter().copied().map(|c| c.abs()).collect::<Vec<_>>()
+        })
+    }
 
-        if self.hrs.is_none() {
+    fn hrs(&self) -> Ref<'_, HrData> {
+        self.processed.hrs.get(|| {
             let (qrs_idxs, thresholds, samples, avg_hr) =
-                detect_beats(&self.filtered_ekg.as_ref().unwrap().samples, self.fs as f32);
+                detect_beats(&self.filtered_ekg().samples, self.fs as f32);
 
-            self.avg_hr = avg_hr;
-            self.hrs = Some(qrs_idxs);
-            self.hr_thresholds = Some(thresholds);
-            self.hr_complex_lead = Some(samples);
-        }
+            HrData {
+                detections: qrs_idxs,
+                thresholds,
+                complex_lead: samples,
+                avg_hr,
+            }
+        })
+    }
+
+    fn clear_processed(&mut self) {
+        self.processed.filtered_ekg.clear();
+        self.processed.fft.clear();
+        self.processed.hrs.clear();
     }
 }
 
@@ -267,18 +316,24 @@ fn apply_zero_phase_filter<F: Filter>(signal: &mut Ekg, filter: &mut F) {
 fn filter_menu(ui: &mut Ui, data: &mut Data) {
     egui::Grid::new("filter_opts").show(ui, |ui| {
         if ui
-            .checkbox(&mut data.high_pass, "High-pass filter")
+            .checkbox(&mut data.filter_config.high_pass, "High-pass filter")
             .changed()
         {
-            data.filtered_ekg = None;
+            data.clear_processed();
         }
 
-        if ui.checkbox(&mut data.pli, "PLI filter").changed() {
-            data.filtered_ekg = None;
+        if ui
+            .checkbox(&mut data.filter_config.pli, "PLI filter")
+            .changed()
+        {
+            data.clear_processed();
         }
 
-        if ui.checkbox(&mut data.low_pass, "Low-pass filter").changed() {
-            data.filtered_ekg = None;
+        if ui
+            .checkbox(&mut data.filter_config.low_pass, "Low-pass filter")
+            .changed()
+        {
+            data.clear_processed();
         }
 
         ui.checkbox(&mut data.hr_debug, "HR debug");
@@ -314,160 +369,165 @@ impl EkgTuner {
     }
 
     fn plot_signal(ui: &mut egui::Ui, data: &mut Data) {
-        let mut marker = None;
-
         let mut lines = vec![];
         let mut hrs = vec![];
 
         let mut bottom = 0.0;
         let mut idx = 0;
+        let mut marker_added = false;
 
-        let ekg = data.filtered_ekg.as_ref().unwrap().samples.chunks(6 * 1000);
-        let threshold = data.hr_thresholds.as_ref().unwrap().chunks(6 * 1000);
-        let complex_lead = data.hr_complex_lead.as_ref().unwrap().chunks(6 * 1000);
+        {
+            let hr_data = data.hrs();
+            let ekg_data = data.filtered_ekg();
 
-        for (ekg, (threshold, complex_lead)) in ekg.zip(threshold.zip(complex_lead)) {
-            let (min, max) = ekg
-                .iter()
-                .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), y| {
-                    (min.min(*y), max.max(*y))
-                });
+            let ekg = ekg_data.samples.chunks(6 * 1000);
+            let threshold = hr_data.thresholds.chunks(6 * 1000);
+            let complex_lead = hr_data.complex_lead.chunks(6 * 1000);
 
-            let height = max - min;
-            let offset = max - bottom;
-            bottom -= height + 0.0005; // 500uV margin
+            for (ekg, (threshold, complex_lead)) in ekg.zip(threshold.zip(complex_lead)) {
+                let (min, max) = ekg
+                    .iter()
+                    .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), y| {
+                        (min.min(*y), max.max(*y))
+                    });
 
-            if marker.is_none() {
-                // to nearest 1mV
-                let min = ((min - offset) as f64 * data.fs).ceil() / data.fs;
+                let height = max - min;
+                let offset = max - bottom;
+                bottom -= height + 0.0005; // 500uV margin
 
-                marker = Some(
-                    Line::new(
-                        [
-                            [-0.04, min + 0.0],
-                            [0.0, min + 0.0],
-                            [0.0, min + 0.001],
-                            [0.16, min + 0.001],
-                            [0.16, min + 0.0],
-                            [0.2, min + 0.0],
-                        ]
-                        .into_iter()
-                        .collect::<PlotPoints>(),
-                    )
-                    .color(Color32::from_rgb(100, 200, 100)),
-                );
-            }
+                if !marker_added {
+                    marker_added = true;
+                    // to nearest 1mV
+                    let marker_y = ((max - offset) as f64 * data.fs).floor() / data.fs - 0.001;
+                    let marker_x = -0.2;
 
-            lines.push(
-                Line::new(
-                    ekg.iter()
-                        .enumerate()
-                        .map(|(x, y)| [x as f64 / data.fs, (*y - offset) as f64])
-                        .collect::<PlotPoints>(),
-                )
-                .color(Color32::from_rgb(100, 150, 250))
-                .name("EKG"),
-            );
-
-            if data.hr_debug {
-                lines.push(
-                    Line::new(
-                        threshold
-                            .iter()
-                            .enumerate()
-                            .map(|(x, y)| {
-                                [
-                                    x as f64 / data.fs,
-                                    (y.total().unwrap_or(y.r) - offset) as f64,
-                                ]
-                            })
+                    lines.push(
+                        Line::new(
+                            [
+                                [marker_x + -0.04, marker_y + 0.0],
+                                [marker_x + 0.0, marker_y + 0.0],
+                                [marker_x + 0.0, marker_y + 0.001],
+                                [marker_x + 0.16, marker_y + 0.001],
+                                [marker_x + 0.16, marker_y + 0.0],
+                                [marker_x + 0.2, marker_y + 0.0],
+                            ]
+                            .into_iter()
                             .collect::<PlotPoints>(),
-                    )
-                    .color(Color32::YELLOW)
-                    .name("Threshold"),
-                );
-                lines.push(
-                    Line::new(
-                        threshold
-                            .iter()
-                            .enumerate()
-                            .map(|(x, y)| {
-                                [
-                                    x as f64 / data.fs,
-                                    (y.m.unwrap_or(f32::NAN) - offset) as f64,
-                                ]
-                            })
-                            .collect::<PlotPoints>(),
-                    )
-                    .color(Color32::WHITE)
-                    .name("M"),
-                );
-                lines.push(
-                    Line::new(
-                        threshold
-                            .iter()
-                            .enumerate()
-                            .map(|(x, y)| {
-                                [
-                                    x as f64 / data.fs,
-                                    (y.f.unwrap_or(f32::NAN) - offset) as f64,
-                                ]
-                            })
-                            .collect::<PlotPoints>(),
-                    )
-                    .color(Color32::GRAY)
-                    .name("F"),
-                );
-                lines.push(
-                    Line::new(
-                        threshold
-                            .iter()
-                            .enumerate()
-                            .map(|(x, y)| [x as f64 / data.fs, (y.r - offset) as f64])
-                            .collect::<PlotPoints>(),
-                    )
-                    .color(Color32::GREEN)
-                    .name("R"),
-                );
+                        )
+                        .color(Color32::from_rgb(100, 200, 100)),
+                    );
+                }
 
                 lines.push(
                     Line::new(
-                        complex_lead
-                            .iter()
+                        ekg.iter()
                             .enumerate()
                             .map(|(x, y)| [x as f64 / data.fs, (*y - offset) as f64])
                             .collect::<PlotPoints>(),
                     )
-                    .color(Color32::LIGHT_RED)
-                    .name("Complex lead"),
+                    .color(Color32::from_rgb(100, 150, 250))
+                    .name("EKG"),
                 );
+
+                hrs.push(
+                    Points::new(
+                        hr_data
+                            .detections
+                            .iter()
+                            .filter_map(|hr_idx| {
+                                let hr_idx = *hr_idx as usize;
+                                if (idx..idx + ekg.len()).contains(&hr_idx) {
+                                    let x = hr_idx - idx;
+                                    let y = ekg[x] as f64 - offset as f64;
+                                    Some([x as f64 / data.fs, y])
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<PlotPoints>(),
+                    )
+                    .color(Color32::LIGHT_RED)
+                    .shape(MarkerShape::Asterisk)
+                    .radius(4.0)
+                    .name(format!("HR: {}", hr_data.avg_hr.round() as i32)),
+                );
+
+                if data.hr_debug {
+                    lines.push(
+                        Line::new(
+                            threshold
+                                .iter()
+                                .enumerate()
+                                .map(|(x, y)| {
+                                    [
+                                        x as f64 / data.fs,
+                                        (y.total().unwrap_or(y.r) - offset) as f64,
+                                    ]
+                                })
+                                .collect::<PlotPoints>(),
+                        )
+                        .color(Color32::YELLOW)
+                        .name("Threshold"),
+                    );
+                    lines.push(
+                        Line::new(
+                            threshold
+                                .iter()
+                                .enumerate()
+                                .map(|(x, y)| {
+                                    [
+                                        x as f64 / data.fs,
+                                        (y.m.unwrap_or(f32::NAN) - offset) as f64,
+                                    ]
+                                })
+                                .collect::<PlotPoints>(),
+                        )
+                        .color(Color32::WHITE)
+                        .name("M"),
+                    );
+                    lines.push(
+                        Line::new(
+                            threshold
+                                .iter()
+                                .enumerate()
+                                .map(|(x, y)| {
+                                    [
+                                        x as f64 / data.fs,
+                                        (y.f.unwrap_or(f32::NAN) - offset) as f64,
+                                    ]
+                                })
+                                .collect::<PlotPoints>(),
+                        )
+                        .color(Color32::GRAY)
+                        .name("F"),
+                    );
+                    lines.push(
+                        Line::new(
+                            threshold
+                                .iter()
+                                .enumerate()
+                                .map(|(x, y)| [x as f64 / data.fs, (y.r - offset) as f64])
+                                .collect::<PlotPoints>(),
+                        )
+                        .color(Color32::GREEN)
+                        .name("R"),
+                    );
+
+                    lines.push(
+                        Line::new(
+                            complex_lead
+                                .iter()
+                                .enumerate()
+                                .map(|(x, y)| [x as f64 / data.fs, (*y - offset) as f64])
+                                .collect::<PlotPoints>(),
+                        )
+                        .color(Color32::LIGHT_RED)
+                        .name("Complex lead"),
+                    );
+                }
+
+                idx += ekg.len();
             }
-
-            hrs.push(
-                Points::new(
-                    data.hrs
-                        .as_ref()
-                        .unwrap()
-                        .iter()
-                        .filter_map(|hr_idx| {
-                            let hr_idx = *hr_idx as usize;
-                            if (idx..idx + ekg.len()).contains(&hr_idx) {
-                                let x = hr_idx - idx;
-                                let y = ekg[x] as f64 - offset as f64;
-                                Some([x as f64 / data.fs, y])
-                            } else {
-                                None
-                            }
-                        })
-                        .collect::<PlotPoints>(),
-                )
-                .color(Color32::LIGHT_RED)
-                .shape(MarkerShape::Asterisk)
-                .radius(4.0)
-                .name(format!("HR: {}", data.avg_hr.round() as i32)),
-            );
-
-            idx += ekg.len();
         }
 
         egui_plot::Plot::new("ekg")
@@ -486,27 +546,26 @@ impl EkgTuner {
                 for points in hrs {
                     plot_ui.points(points);
                 }
-                if let Some(marker) = marker {
-                    plot_ui.line(marker);
-                }
             })
             .response
             .context_menu(|ui| filter_menu(ui, data));
     }
 
     fn fft_tab(ui: &mut Ui, data: &mut Data) {
-        let fft = data.fft.as_ref().unwrap();
+        let fft = {
+            let fft = data.fft();
 
-        let fft = Line::new(
-            fft.iter()
-                .skip(1 - data.high_pass as usize) // skip DC if high-pass is off
-                .take(fft.len() / 2)
-                .enumerate()
-                .map(|(x, y)| [x as f64 * data.fs / fft.len() as f64, *y as f64])
-                .collect::<PlotPoints>(),
-        )
-        .color(Color32::from_rgb(100, 150, 250))
-        .name("FFT");
+            Line::new(
+                fft.iter()
+                    .skip(1 - data.filter_config.high_pass as usize) // skip DC if high-pass is off
+                    .take(fft.len() / 2)
+                    .enumerate()
+                    .map(|(x, y)| [x as f64 * data.fs / fft.len() as f64, *y as f64])
+                    .collect::<PlotPoints>(),
+            )
+            .color(Color32::from_rgb(100, 150, 250))
+            .name("FFT")
+        };
 
         egui_plot::Plot::new("fft")
             .legend(Legend::default())
@@ -542,8 +601,6 @@ impl eframe::App for EkgTuner {
                     ui.selectable_value(&mut self.active_tab, Tabs::EKG, "EKG");
                     ui.selectable_value(&mut self.active_tab, Tabs::FFT, "FFT");
                 });
-
-                data.update();
 
                 match self.active_tab {
                     Tabs::EKG => Self::ekg_tab(ui, data),
