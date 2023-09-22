@@ -165,7 +165,7 @@ impl Data {
             if self.filter_config.pli {
                 apply_filter(
                     &mut samples,
-                    &mut PowerLineFilter::<AdaptationBlocking<Sum<1200>, 4, 19>, 1>::new(
+                    PowerLineFilter::<AdaptationBlocking<Sum<1200>, 4, 19>, 1>::new(
                         self.raw_ekg.fs as f32,
                         [50.0],
                     ),
@@ -174,24 +174,24 @@ impl Data {
 
             if self.filter_config.high_pass {
                 #[rustfmt::skip]
-                let mut high_pass = designfilt!(
+                let high_pass = designfilt!(
                     "highpassiir",
                     "FilterOrder", 2,
                     "HalfPowerFrequency", 0.75,
                     "SampleRate", 1000
                 );
-                apply_zero_phase_filter(&mut samples, &mut high_pass);
+                apply_zero_phase_filter(&mut samples, high_pass);
             }
 
             if self.filter_config.low_pass {
                 #[rustfmt::skip]
-                let mut low_pass = designfilt!(
+                let low_pass = designfilt!(
                     "lowpassiir",
                     "FilterOrder", 2,
                     "HalfPowerFrequency", 75,
                     "SampleRate", 1000
                 );
-                apply_zero_phase_filter(&mut samples, &mut low_pass);
+                apply_zero_phase_filter(&mut samples, low_pass);
             }
 
             Ekg {
@@ -382,7 +382,7 @@ impl Default for EkgTuner {
     }
 }
 
-fn apply_filter<F: Filter>(signal: &mut Vec<f32>, filter: &mut F) {
+fn apply_filter<F: Filter>(signal: &mut Vec<f32>, mut filter: F) {
     *signal = signal
         .iter()
         .copied()
@@ -390,11 +390,9 @@ fn apply_filter<F: Filter>(signal: &mut Vec<f32>, filter: &mut F) {
         .collect::<Vec<_>>();
 }
 
-fn apply_zero_phase_filter<F: Filter>(signal: &mut Vec<f32>, filter: &mut F) {
-    apply_filter(signal, filter);
+fn apply_zero_phase_filter<F: Filter + Clone>(signal: &mut Vec<f32>, filter: F) {
+    apply_filter(signal, filter.clone());
     signal.reverse();
-
-    filter.clear();
 
     apply_filter(signal, filter);
     signal.reverse();
