@@ -1326,12 +1326,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "if_chain"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb56e1aa765b4b4f3aadfab769793b7087bb03a4ea4920644a6d238e2df5b9ed"
-
-[[package]]
 name = "image"
 version = "0.24.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1507,12 +1501,12 @@ checksum = "b5e6163cb8c49088c2c36f57875e58ccd8c87c7427f7fbd50ea6710b2f3f2e8f"
 [[package]]
 name = "logger"
 version = "0.1.0"
-source = "git+https://github.com/card-io-ecg/card-io-fw.git#819d7c6ee294291d162c0d81f2b19260c40bd08f"
+source = "git+https://github.com/card-io-ecg/card-io-fw.git#15ea28843087a3bffeacc8fc9ef796d6d4e02761"
 
 [[package]]
 name = "macros"
 version = "0.1.0"
-source = "git+https://github.com/card-io-ecg/card-io-fw.git#819d7c6ee294291d162c0d81f2b19260c40bd08f"
+source = "git+https://github.com/card-io-ecg/card-io-fw.git#15ea28843087a3bffeacc8fc9ef796d6d4e02761"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -2042,9 +2036,8 @@ dependencies = [
 [[package]]
 name = "qrs_detector"
 version = "0.3.0-dev"
-source = "git+https://github.com/bugadani/QrsDetector.git#715d4e5b064b3ab1815fc4a6c54515b7693bff3e"
+source = "git+https://github.com/bugadani/QrsDetector.git#2d6f70a89eb3ac59f5bbf86353ffaaac895506ed"
 dependencies = [
- "if_chain",
  "micromath",
 ]
 
@@ -2331,7 +2324,7 @@ dependencies = [
 [[package]]
 name = "signal-processing"
 version = "0.1.0"
-source = "git+https://github.com/card-io-ecg/card-io-fw.git#819d7c6ee294291d162c0d81f2b19260c40bd08f"
+source = "git+https://github.com/card-io-ecg/card-io-fw.git#15ea28843087a3bffeacc8fc9ef796d6d4e02761"
 dependencies = [
  "embedded-io",
  "logger",

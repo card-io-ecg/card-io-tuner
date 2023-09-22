@@ -85,7 +85,7 @@ struct Data {
     fs: f64,
     filtered_ekg: Option<Ekg>,
     fft: Option<Vec<f32>>,
-    hrs: Option<Vec<u32>>,
+    hrs: Option<Vec<usize>>,
     avg_hr: f32,
     high_pass: bool,
     pli: bool,
@@ -458,7 +458,7 @@ impl eframe::App for EkgTuner {
                     let mut calculator = HeartRateCalculator::new(data.fs as f32);
 
                     let mut hrs = Vec::new();
-                    const DELAY: u32 = 57; // The delay of the FIR filter in the calculator
+                    const DELAY: usize = 57; // The delay of the FIR filter in the calculator
                     for sample in data.filtered_ekg.as_ref().unwrap().samples.iter() {
                         if let Some(idx) = calculator.update(*sample) {
                             hrs.push(idx - DELAY);
