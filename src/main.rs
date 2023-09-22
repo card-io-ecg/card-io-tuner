@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![feature(iter_map_windows)]
 
-use std::{cell::Ref, env, path::PathBuf};
+use std::{cell::Ref, env, path::PathBuf, sync::Arc};
 
 use eframe::{
     egui::{self, PointerButton, Ui},
@@ -44,7 +44,7 @@ fn main() -> Result<(), eframe::Error> {
 
 #[derive(Clone)]
 struct Ekg {
-    samples: Vec<f32>,
+    samples: Arc<[f32]>,
     fs: f64,
 }
 
@@ -81,10 +81,11 @@ impl Ekg {
 
         Ok(Self {
             fs: 1000.0,
-            samples: samples
-                .get(ignore_start..samples.len() - ignore_end)
-                .ok_or(())?
-                .to_vec(),
+            samples: Arc::from(
+                samples
+                    .get(ignore_start..samples.len() - ignore_end)
+                    .ok_or(())?,
+            ),
         })
     }
 }
@@ -96,7 +97,17 @@ struct HrData {
     avg_hr: f32,
 }
 
-type Cycle = (usize, Vec<f32>);
+pub struct Cycle {
+    samples: Arc<[f32]>,
+    start: usize,
+    position: usize,
+    end: usize,
+}
+impl Cycle {
+    fn as_slice(&self) -> &[f32] {
+        &self.samples[self.start..self.end]
+    }
+}
 
 struct ProcessedSignal {
     filtered_ekg: DataCell<Ekg>,
@@ -104,7 +115,7 @@ struct ProcessedSignal {
     hrs: DataCell<HrData>,
     cycles: DataCell<Vec<Cycle>>,
     adjusted_cycles: DataCell<Vec<Cycle>>,
-    majority_cycle: DataCell<Ekg>,
+    majority_cycle: DataCell<Cycle>,
 }
 
 struct Data {
@@ -184,7 +195,7 @@ impl Data {
             }
 
             Ekg {
-                samples,
+                samples: Arc::from(samples),
                 fs: self.raw_ekg.fs,
             }
         })
@@ -228,7 +239,7 @@ impl Data {
         self.hrs().avg_hr
     }
 
-    fn cycles(&self) -> Ref<'_, Vec<(usize, Vec<f32>)>> {
+    fn cycles(&self) -> Ref<'_, Vec<Cycle>> {
         self.processed.cycles.get(|| {
             let filtered = self.filtered_ekg();
             let hrs = self.hrs();
@@ -243,16 +254,18 @@ impl Data {
                 .iter()
                 .copied()
                 .filter_map(|idx| {
-                    filtered
-                        .samples
-                        .get(idx - pre..idx + post)
-                        .map(|slice| (idx, slice.to_vec()))
+                    filtered.samples.get(idx - pre..idx + post).map(|_| Cycle {
+                        samples: filtered.samples.clone(),
+                        start: idx - pre,
+                        position: idx,
+                        end: idx + post,
+                    })
                 })
                 .collect::<Vec<_>>()
         })
     }
 
-    fn adjusted_cycles(&self) -> Ref<'_, Vec<(usize, Vec<f32>)>> {
+    fn adjusted_cycles(&self) -> Ref<'_, Vec<Cycle>> {
         self.processed.adjusted_cycles.get(|| {
             let filtered = self.filtered_ekg();
 
@@ -264,8 +277,8 @@ impl Data {
 
             let cycles = self.cycles();
 
-            let cycle_idxs = cycles.iter().map(|(idx, _)| *idx);
-            let all_cycles = cycles.iter().map(|(_, cycle)| cycle.as_slice());
+            let cycle_idxs = cycles.iter().map(|cycle| cycle.position);
+            let all_cycles = cycles.iter().map(|cycle| cycle.as_slice());
 
             let all_average = average_cycle(all_cycles.clone());
 
@@ -282,19 +295,27 @@ impl Data {
             });
 
             adjusted_idxs
-                .map(|idx| (idx, filtered.samples[idx - pre..idx + post].to_vec()))
+                .map(|idx| Cycle {
+                    samples: filtered.samples.clone(),
+                    start: idx - pre,
+                    position: idx,
+                    end: idx + post,
+                })
                 .collect::<Vec<_>>()
         })
     }
 
-    fn majority_cycle(&self) -> Ref<'_, Ekg> {
+    fn majority_cycle(&self) -> Ref<'_, Cycle> {
         self.processed.majority_cycle.get(|| {
-            let filtered = self.filtered_ekg();
             let adjusted_cycles = self.adjusted_cycles();
 
-            Ekg {
-                samples: average_cycle(adjusted_cycles.iter().map(|(_, cycle)| cycle.as_slice())),
-                fs: filtered.fs,
+            let avg = average_cycle(adjusted_cycles.iter().map(|cycle| cycle.as_slice()));
+
+            Cycle {
+                samples: Arc::from(avg),
+                position: adjusted_cycles[0].position,
+                start: 0,
+                end: 0,
             }
         })
     }
@@ -651,6 +672,7 @@ impl EkgTuner {
     fn cycle_tab(ui: &mut Ui, data: &mut Data) {
         let mut lines = vec![];
 
+        let fs = data.filtered_ekg().fs;
         let cycle = data.majority_cycle();
 
         lines.push(
@@ -659,7 +681,7 @@ impl EkgTuner {
                     .samples
                     .iter()
                     .enumerate()
-                    .map(|(x, y)| [x as f64 / cycle.fs, *y as f64])
+                    .map(|(x, y)| [x as f64 / fs, *y as f64])
                     .collect::<PlotPoints>(),
             )
             .color(Color32::from_rgb(100, 150, 250))
