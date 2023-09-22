@@ -111,6 +111,91 @@ impl Data {
             })
         })
     }
+
+    fn update(&mut self) {
+        if self.filtered_ekg.is_none() {
+            let mut filtered = self.raw_ekg.clone();
+
+            if self.pli {
+                apply_filter(
+                    &mut filtered,
+                    &mut PowerLineFilter::<AdaptationBlocking<Sum<1200>, 4, 19>, 1>::new(
+                        self.fs as f32,
+                        [50.0],
+                    ),
+                );
+            }
+
+            if self.high_pass {
+                #[rustfmt::skip]
+                let mut high_pass = designfilt!(
+                    "highpassiir",
+                    "FilterOrder", 2,
+                    "HalfPowerFrequency", 0.75,
+                    "SampleRate", 1000
+                );
+                apply_zero_phase_filter(&mut filtered, &mut high_pass);
+            }
+
+            if self.low_pass {
+                #[rustfmt::skip]
+                let mut low_pass = designfilt!(
+                    "lowpassiir",
+                    "FilterOrder", 2,
+                    "HalfPowerFrequency", 75,
+                    "SampleRate", 1000
+                );
+                apply_zero_phase_filter(&mut filtered, &mut low_pass);
+            }
+
+            self.filtered_ekg = Some(filtered);
+            self.fft = None;
+            self.hrs = None;
+        }
+
+        if self.fft.is_none() {
+            let mut samples = self
+                .filtered_ekg
+                .as_ref()
+                .unwrap()
+                .samples
+                .iter()
+                .copied()
+                .map(|y| Complex { re: y, im: 0.0 })
+                .collect::<Vec<_>>();
+
+            let mut planner = rustfft::FftPlanner::new();
+            let fft = planner.plan_fft_forward(samples.len());
+
+            fft.process(&mut samples);
+
+            let fft = samples.iter().copied().map(|c| c.abs()).collect::<Vec<_>>();
+            self.fft = Some(fft);
+        }
+
+        if self.hrs.is_none() {
+            let mut calculator = HeartRateCalculator::new(self.fs as f32);
+
+            let mut hrs = Vec::new();
+            const DELAY: usize = 57; // The delay of the FIR filter in the calculator
+            for sample in self.filtered_ekg.as_ref().unwrap().samples.iter() {
+                if let Some(idx) = calculator.update(*sample) {
+                    hrs.push(idx - DELAY);
+                }
+            }
+
+            let avg_hr = hrs
+                .iter()
+                .copied()
+                .map_windows(|[a, b]| *b - *a)
+                .map(|diff| 60.0 * self.fs as f32 / diff as f32)
+                .sum::<f32>()
+                / (hrs.len() as f32 - 1.0);
+
+            self.avg_hr = avg_hr;
+            self.hrs = Some(hrs);
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -394,88 +479,7 @@ impl eframe::App for EkgTuner {
                     ui.selectable_value(&mut self.active_tab, Tabs::FFT, "FFT");
                 });
 
-                if data.filtered_ekg.is_none() {
-                    let mut filtered = data.raw_ekg.clone();
-
-                    if data.pli {
-                        apply_filter(
-                            &mut filtered,
-                            &mut PowerLineFilter::<AdaptationBlocking<Sum<1200>, 4, 19>, 1>::new(
-                                data.fs as f32,
-                                [50.0],
-                            ),
-                        );
-                    }
-
-                    if data.high_pass {
-                        #[rustfmt::skip]
-                        let mut high_pass = designfilt!(
-                            "highpassiir",
-                            "FilterOrder", 2,
-                            "HalfPowerFrequency", 0.75,
-                            "SampleRate", 1000
-                        );
-                        apply_zero_phase_filter(&mut filtered, &mut high_pass);
-                    }
-
-                    if data.low_pass {
-                        #[rustfmt::skip]
-                        let mut low_pass = designfilt!(
-                            "lowpassiir",
-                            "FilterOrder", 2,
-                            "HalfPowerFrequency", 75,
-                            "SampleRate", 1000
-                        );
-                        apply_zero_phase_filter(&mut filtered, &mut low_pass);
-                    }
-
-                    data.filtered_ekg = Some(filtered);
-                    data.fft = None;
-                    data.hrs = None;
-                }
-
-                if data.fft.is_none() {
-                    let mut samples = data
-                        .filtered_ekg
-                        .as_ref()
-                        .unwrap()
-                        .samples
-                        .iter()
-                        .copied()
-                        .map(|y| Complex { re: y, im: 0.0 })
-                        .collect::<Vec<_>>();
-
-                    let mut planner = rustfft::FftPlanner::new();
-                    let fft = planner.plan_fft_forward(samples.len());
-
-                    fft.process(&mut samples);
-
-                    let fft = samples.iter().copied().map(|c| c.abs()).collect::<Vec<_>>();
-                    data.fft = Some(fft);
-                }
-
-                if data.hrs.is_none() {
-                    let mut calculator = HeartRateCalculator::new(data.fs as f32);
-
-                    let mut hrs = Vec::new();
-                    const DELAY: usize = 57; // The delay of the FIR filter in the calculator
-                    for sample in data.filtered_ekg.as_ref().unwrap().samples.iter() {
-                        if let Some(idx) = calculator.update(*sample) {
-                            hrs.push(idx - DELAY);
-                        }
-                    }
-
-                    let avg_hr = hrs
-                        .iter()
-                        .copied()
-                        .map_windows(|[a, b]| *b - *a)
-                        .map(|diff| 60.0 * data.fs as f32 / diff as f32)
-                        .sum::<f32>()
-                        / (hrs.len() as f32 - 1.0);
-
-                    data.avg_hr = avg_hr;
-                    data.hrs = Some(hrs);
-                }
+                data.update();
 
                 match self.active_tab {
                     Tabs::EKG => Self::ekg_tab(ui, data),
