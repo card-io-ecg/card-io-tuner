@@ -7,7 +7,7 @@ use eframe::{
     egui::{self, PointerButton, Ui},
     epaint::Color32,
 };
-use egui_plot::{AxisBools, GridMark, Legend, Line, MarkerShape, PlotPoints, Points};
+use egui_plot::{AxisBools, GridInput, GridMark, Legend, Line, MarkerShape, PlotPoints, Points};
 use rustfft::num_complex::{Complex, ComplexFloat};
 use signal_processing::{
     compressing_buffer::EkgFormat,
@@ -257,6 +257,29 @@ fn filter_menu(ui: &mut Ui, data: &mut Data) {
     });
 }
 
+fn generate_grid_marks(input: GridInput, scale: f64, steps: &[i32]) -> Vec<GridMark> {
+    let mut marks = vec![];
+
+    let (min, max) = input.bounds;
+    let min = (min * scale).floor() as i32;
+    let max = (max * scale).ceil() as i32;
+
+    for i in min..=max {
+        steps
+            .iter()
+            .copied()
+            .find(|step| i % *step == 0)
+            .map(|step| {
+                marks.push(GridMark {
+                    value: i as f64 / scale,
+                    step_size: step as f64 / scale,
+                })
+            });
+    }
+
+    marks
+}
+
 impl EkgTuner {
     fn ekg_tab(ui: &mut Ui, data: &mut Data) {
         Self::plot_signal(ui, data);
@@ -348,58 +371,8 @@ impl EkgTuner {
             .data_aspect(400.0) // 1 small square = 40ms = 0.1mV
             .allow_scroll(false)
             .boxed_zoom_pointer_button(PointerButton::Middle)
-            .x_grid_spacer(|input| {
-                let mut marks = vec![];
-
-                const SCALE: f64 = 100.0;
-
-                let (min, max) = input.bounds;
-                let min = (min * SCALE).floor() as i32;
-                let max = (max * SCALE).ceil() as i32;
-
-                for i in min..=max {
-                    let step_size = if i % 20 == 0 {
-                        0.200 // 200ms big square
-                    } else if i % 4 == 0 {
-                        0.04 // 40ms small square
-                    } else {
-                        continue;
-                    };
-
-                    marks.push(GridMark {
-                        value: i as f64 / SCALE,
-                        step_size,
-                    });
-                }
-
-                marks
-            })
-            .y_grid_spacer(|input| {
-                let mut marks = vec![];
-
-                const SCALE: f64 = 1_0000.0;
-
-                let (min, max) = input.bounds;
-                let min = (min * SCALE).floor() as i32;
-                let max = (max * SCALE).ceil() as i32;
-
-                for i in min..=max {
-                    let step_size = if i % 5 == 0 {
-                        0.0005 // 500uV big square
-                    } else if i % 1 == 0 {
-                        0.0001 // 100uV small square
-                    } else {
-                        continue;
-                    };
-
-                    marks.push(GridMark {
-                        value: i as f64 / SCALE,
-                        step_size,
-                    });
-                }
-
-                marks
-            })
+            .x_grid_spacer(|input| generate_grid_marks(input, 1.0 / 0.01, &[20, 4])) // 10ms resolution, 200ms, 40ms
+            .y_grid_spacer(|input| generate_grid_marks(input, 1.0 / 0.000_1, &[5, 1])) // 100uV resolution, 500uV, 100uV
             .show(ui, |plot_ui| {
                 for line in lines {
                     plot_ui.line(line);
