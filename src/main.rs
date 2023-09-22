@@ -22,7 +22,7 @@ use signal_processing::{
 };
 
 use crate::{
-    analysis::{adjust_time, average_cycle},
+    analysis::{adjust_time, average_cycle, cross_correlate},
     data_cell::DataCell,
 };
 
@@ -320,8 +320,36 @@ impl Data {
 
             let avg = average_cycle(adjusted_cycles.iter().map(|cycle| cycle.as_slice()));
 
+            let autocorr = cross_correlate(avg.as_slice(), avg.as_slice());
+
+            let similarities = adjusted_cycles
+                .iter()
+                .map(|cycle| cross_correlate(cycle.as_slice(), &avg))
+                .map(|xcorr| similarity(xcorr, autocorr))
+                .collect::<Vec<_>>();
+
+            const SIMILARITY_THRESHOLD: f32 = 0.8;
+
+            let similar_cycles = adjusted_cycles.iter().zip(similarities.iter()).filter_map(
+                |(cycle, similarity)| {
+                    (*similarity > SIMILARITY_THRESHOLD).then_some(cycle.as_slice())
+                },
+            );
+
+            let majority_cycle = average_cycle(similar_cycles.clone());
+
+            log::debug!(
+                "Similarity with average: {}, based on {}/{} cycles",
+                similarity(
+                    cross_correlate(majority_cycle.as_slice(), avg.as_slice()),
+                    autocorr
+                ),
+                similar_cycles.count(),
+                adjusted_cycles.len(),
+            );
+
             let mut max = f32::NEG_INFINITY;
-            let max_pos = avg
+            let max_pos = majority_cycle
                 .iter()
                 .enumerate()
                 .filter_map(|(idx, y)| {
@@ -338,8 +366,8 @@ impl Data {
             Cycle {
                 position: max_pos,
                 start: 0,
-                end: avg.len(),
-                samples: Arc::from(avg),
+                end: majority_cycle.len(),
+                samples: Arc::from(majority_cycle),
             }
         })
     }
@@ -347,6 +375,10 @@ impl Data {
     fn clear_processed(&mut self) {
         self.processed.clear();
     }
+}
+
+fn similarity(corr: f32, max_corr: f32) -> f32 {
+    1.0 - (1.0 - corr / max_corr).abs()
 }
 
 fn detect_beats(ekg: &[f32], fs: f32) -> (Vec<usize>, Vec<Thresholds>, Vec<f32>, f32) {
