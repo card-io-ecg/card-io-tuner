@@ -41,6 +41,7 @@ fn main() -> Result<(), eframe::Error> {
 #[derive(Clone)]
 struct Ekg {
     samples: Vec<f32>,
+    fs: f64,
 }
 
 impl Ekg {
@@ -75,6 +76,7 @@ impl Ekg {
         let ignore_end = 300;
 
         Ok(Self {
+            fs: 1000.0,
             samples: samples
                 .get(ignore_start..samples.len() - ignore_end)
                 .ok_or(())?
@@ -99,7 +101,6 @@ struct ProcessedSignal {
 struct Data {
     path: PathBuf,
     raw_ekg: Ekg,
-    fs: f64,
     processed: ProcessedSignal,
     filter_config: FilterConfig,
     hr_debug: bool,
@@ -118,7 +119,6 @@ impl Data {
             let ekg = Ekg::load(bytes).ok()?;
             Some(Data {
                 path,
-                fs: 1000.0,
                 raw_ekg: ekg,
                 processed: ProcessedSignal {
                     filtered_ekg: DataCell::new(),
@@ -143,7 +143,7 @@ impl Data {
                 apply_filter(
                     &mut filtered,
                     &mut PowerLineFilter::<AdaptationBlocking<Sum<1200>, 4, 19>, 1>::new(
-                        self.fs as f32,
+                        self.raw_ekg.fs as f32,
                         [50.0],
                     ),
                 );
@@ -196,8 +196,9 @@ impl Data {
 
     fn hrs(&self) -> Ref<'_, HrData> {
         self.processed.hrs.get(|| {
+            let filtered = self.filtered_ekg();
             let (qrs_idxs, thresholds, samples, avg_hr) =
-                detect_beats(&self.filtered_ekg().samples, self.fs as f32);
+                detect_beats(&filtered.samples, filtered.fs as f32);
 
             HrData {
                 detections: qrs_idxs,
@@ -372,7 +373,8 @@ impl EkgTuner {
                 if !marker_added {
                     marker_added = true;
                     // to nearest 1mV
-                    let marker_y = ((max - offset) as f64 * data.fs).floor() / data.fs - 0.001;
+                    let marker_y =
+                        ((max - offset) as f64 * ekg_data.fs).floor() / ekg_data.fs - 0.001;
                     let marker_x = -0.2;
 
                     lines.push(
@@ -396,7 +398,7 @@ impl EkgTuner {
                     Line::new(
                         ekg.iter()
                             .enumerate()
-                            .map(|(x, y)| [x as f64 / data.fs, (*y - offset) as f64])
+                            .map(|(x, y)| [x as f64 / ekg_data.fs, (*y - offset) as f64])
                             .collect::<PlotPoints>(),
                     )
                     .color(Color32::from_rgb(100, 150, 250))
@@ -413,7 +415,7 @@ impl EkgTuner {
                                 if (idx..idx + ekg.len()).contains(&hr_idx) {
                                     let x = hr_idx - idx;
                                     let y = ekg[x] as f64 - offset as f64;
-                                    Some([x as f64 / data.fs, y])
+                                    Some([x as f64 / ekg_data.fs, y])
                                 } else {
                                     None
                                 }
@@ -434,7 +436,7 @@ impl EkgTuner {
                                 .enumerate()
                                 .map(|(x, y)| {
                                     [
-                                        x as f64 / data.fs,
+                                        x as f64 / ekg_data.fs,
                                         (y.total().unwrap_or(y.r) - offset) as f64,
                                     ]
                                 })
@@ -450,7 +452,7 @@ impl EkgTuner {
                                 .enumerate()
                                 .map(|(x, y)| {
                                     [
-                                        x as f64 / data.fs,
+                                        x as f64 / ekg_data.fs,
                                         (y.m.unwrap_or(f32::NAN) - offset) as f64,
                                     ]
                                 })
@@ -466,7 +468,7 @@ impl EkgTuner {
                                 .enumerate()
                                 .map(|(x, y)| {
                                     [
-                                        x as f64 / data.fs,
+                                        x as f64 / ekg_data.fs,
                                         (y.f.unwrap_or(f32::NAN) - offset) as f64,
                                     ]
                                 })
@@ -480,7 +482,7 @@ impl EkgTuner {
                             threshold
                                 .iter()
                                 .enumerate()
-                                .map(|(x, y)| [x as f64 / data.fs, (y.r - offset) as f64])
+                                .map(|(x, y)| [x as f64 / ekg_data.fs, (y.r - offset) as f64])
                                 .collect::<PlotPoints>(),
                         )
                         .color(Color32::GREEN)
@@ -492,7 +494,7 @@ impl EkgTuner {
                             complex_lead
                                 .iter()
                                 .enumerate()
-                                .map(|(x, y)| [x as f64 / data.fs, (*y - offset) as f64])
+                                .map(|(x, y)| [x as f64 / ekg_data.fs, (*y - offset) as f64])
                                 .collect::<PlotPoints>(),
                         )
                         .color(Color32::LIGHT_RED)
@@ -534,7 +536,7 @@ impl EkgTuner {
                     .skip(1 - data.filter_config.high_pass as usize) // skip DC if high-pass is off
                     .take(fft.len() / 2)
                     .enumerate()
-                    .map(|(x, y)| [x as f64 * data.fs / fft.len() as f64, *y as f64])
+                    .map(|(x, y)| [x as f64 * data.raw_ekg.fs / fft.len() as f64, *y as f64])
                     .collect::<PlotPoints>(),
             )
             .color(Color32::from_rgb(100, 150, 250))
