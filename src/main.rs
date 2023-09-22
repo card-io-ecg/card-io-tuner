@@ -320,11 +320,26 @@ impl Data {
 
             let avg = average_cycle(adjusted_cycles.iter().map(|cycle| cycle.as_slice()));
 
+            let mut max = f32::NEG_INFINITY;
+            let max_pos = avg
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, y)| {
+                    max = max.max(*y);
+                    if *y == max {
+                        Some(idx)
+                    } else {
+                        None
+                    }
+                })
+                .last()
+                .unwrap();
+
             Cycle {
-                samples: Arc::from(avg),
-                position: adjusted_cycles[0].position,
+                position: max_pos,
                 start: 0,
-                end: 0,
+                end: avg.len(),
+                samples: Arc::from(avg),
             }
         })
     }
@@ -685,7 +700,7 @@ impl EkgTuner {
                     .samples
                     .iter()
                     .enumerate()
-                    .map(|(x, y)| [x as f64 / fs, *y as f64])
+                    .map(|(x, y)| [(x as f64 - cycle.position as f64) / fs, *y as f64])
                     .collect::<PlotPoints>(),
             )
             .color(Color32::from_rgb(100, 150, 250))
