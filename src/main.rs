@@ -17,12 +17,16 @@ use signal_processing::{
         pli::{adaptation_blocking::AdaptationBlocking, PowerLineFilter},
         Filter,
     },
-    heart_rate::{HeartRateCalculator, Thresholds},
+    heart_rate::{HeartRateCalculator, SamplingFrequencyExt, Thresholds},
     moving::sum::Sum,
 };
 
-use crate::data_cell::DataCell;
+use crate::{
+    analysis::{adjust_time, average_cycle},
+    data_cell::DataCell,
+};
 
+mod analysis;
 mod data_cell;
 
 fn main() -> Result<(), eframe::Error> {
@@ -96,6 +100,9 @@ struct ProcessedSignal {
     filtered_ekg: DataCell<Ekg>,
     fft: DataCell<Vec<f32>>,
     hrs: DataCell<HrData>,
+    cycles: DataCell<Vec<(usize, Vec<f32>)>>,
+    adjusted_cycles: DataCell<Vec<(usize, Vec<f32>)>>,
+    majority_cycle: DataCell<Ekg>,
 }
 
 struct Data {
@@ -124,6 +131,9 @@ impl Data {
                     filtered_ekg: DataCell::new(),
                     fft: DataCell::new(),
                     hrs: DataCell::new(),
+                    cycles: DataCell::new(),
+                    adjusted_cycles: DataCell::new(),
+                    majority_cycle: DataCell::new(),
                 },
                 filter_config: FilterConfig {
                     high_pass: true,
@@ -209,10 +219,86 @@ impl Data {
         })
     }
 
+    fn avg_hr(&self) -> f32 {
+        self.hrs().avg_hr
+    }
+
+    fn cycles(&self) -> Ref<'_, Vec<(usize, Vec<f32>)>> {
+        self.processed.cycles.get(|| {
+            let filtered = self.filtered_ekg();
+            let hrs = self.hrs();
+
+            let fs = (filtered.fs as f32).sps();
+            let avg_rr = 60.0 / self.avg_hr();
+
+            let pre = fs.s_to_samples(avg_rr / 3.0);
+            let post = fs.s_to_samples(avg_rr * 2.0 / 3.0);
+
+            hrs.detections
+                .iter()
+                .copied()
+                .filter_map(|idx| {
+                    filtered
+                        .samples
+                        .get(idx - pre..idx + post)
+                        .map(|slice| (idx, slice.to_vec()))
+                })
+                .collect::<Vec<_>>()
+        })
+    }
+
+    fn adjusted_cycles(&self) -> Ref<'_, Vec<(usize, Vec<f32>)>> {
+        self.processed.adjusted_cycles.get(|| {
+            let filtered = self.filtered_ekg();
+
+            let fs = (filtered.fs as f32).sps();
+            let avg_rr = 60.0 / self.avg_hr();
+
+            let pre = fs.s_to_samples(avg_rr / 3.0);
+            let post = fs.s_to_samples(avg_rr * 2.0 / 3.0);
+
+            let cycles = self.cycles();
+
+            let cycle_idxs = cycles.iter().map(|(idx, _)| *idx);
+            let all_cycles = cycles.iter().map(|(_, cycle)| cycle.as_slice());
+
+            let all_average = average_cycle(all_cycles.clone());
+
+            // For QRS adjustment, we're using the 50-50 ms window around the peak of the QRS
+            let avg_qrs_width = fs.ms_to_samples(25.0);
+            let avg_qrs = &all_average[pre - avg_qrs_width..][..(2 * avg_qrs_width)];
+
+            let adjusted_idxs = cycle_idxs.map(|idx| {
+                (idx as isize
+                    + adjust_time(
+                        &filtered.samples[idx - (avg_qrs_width * 2)..idx + (avg_qrs_width * 2)],
+                        &avg_qrs,
+                    )) as usize
+            });
+
+            adjusted_idxs
+                .map(|idx| (idx, filtered.samples[idx - pre..idx + post].to_vec()))
+                .collect::<Vec<_>>()
+        })
+    }
+
+    fn majority_cycle(&self) -> Ref<'_, Ekg> {
+        self.processed.majority_cycle.get(|| {
+            let filtered = self.filtered_ekg();
+            let adjusted_cycles = self.adjusted_cycles();
+
+            Ekg {
+                samples: average_cycle(adjusted_cycles.iter().map(|(_, cycle)| cycle.as_slice())),
+                fs: filtered.fs,
+            }
+        })
+    }
+
     fn clear_processed(&mut self) {
         self.processed.filtered_ekg.clear();
         self.processed.fft.clear();
         self.processed.hrs.clear();
+        self.processed.majority_cycle.clear();
     }
 }
 
@@ -253,6 +339,7 @@ fn detect_beats(ekg: &[f32], fs: f32) -> (Vec<usize>, Vec<Thresholds>, Vec<f32>,
 enum Tabs {
     EKG,
     FFT,
+    Cycle,
 }
 
 struct EkgTuner {
@@ -556,6 +643,40 @@ impl EkgTuner {
             .response
             .context_menu(|ui| filter_menu(ui, data));
     }
+
+    fn cycle_tab(ui: &mut Ui, data: &mut Data) {
+        let mut lines = vec![];
+
+        let cycle = data.majority_cycle();
+
+        lines.push(
+            Line::new(
+                cycle
+                    .samples
+                    .iter()
+                    .enumerate()
+                    .map(|(x, y)| [x as f64 / cycle.fs, *y as f64])
+                    .collect::<PlotPoints>(),
+            )
+            .color(Color32::from_rgb(100, 150, 250))
+            .name("Majority cycle"),
+        );
+
+        egui_plot::Plot::new("cycle")
+            .legend(Legend::default())
+            .show_axes(false)
+            .show_grid(true)
+            .data_aspect(400.0) // 1 small square = 40ms = 0.1mV
+            .allow_scroll(false)
+            .boxed_zoom_pointer_button(PointerButton::Middle)
+            .x_grid_spacer(|input| generate_grid_marks(input, 1.0 / 0.01, &[20, 4])) // 10ms resolution, 200ms, 40ms
+            .y_grid_spacer(|input| generate_grid_marks(input, 1.0 / 0.000_1, &[5, 1])) // 100uV resolution, 500uV, 100uV
+            .show(ui, |plot_ui| {
+                for line in lines {
+                    plot_ui.line(line);
+                }
+            });
+    }
 }
 
 impl eframe::App for EkgTuner {
@@ -576,11 +697,13 @@ impl eframe::App for EkgTuner {
                 ui.horizontal(|ui| {
                     ui.selectable_value(&mut self.active_tab, Tabs::EKG, "EKG");
                     ui.selectable_value(&mut self.active_tab, Tabs::FFT, "FFT");
+                    ui.selectable_value(&mut self.active_tab, Tabs::Cycle, "Cycle info");
                 });
 
                 match self.active_tab {
                     Tabs::EKG => Self::ekg_tab(ui, data),
                     Tabs::FFT => Self::fft_tab(ui, data),
+                    Tabs::Cycle => Self::cycle_tab(ui, data),
                 }
             }
         });
