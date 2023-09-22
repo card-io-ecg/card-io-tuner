@@ -1501,12 +1501,12 @@ checksum = "b5e6163cb8c49088c2c36f57875e58ccd8c87c7427f7fbd50ea6710b2f3f2e8f"
 [[package]]
 name = "logger"
 version = "0.1.0"
-source = "git+https://github.com/card-io-ecg/card-io-fw.git#15ea28843087a3bffeacc8fc9ef796d6d4e02761"
+source = "git+https://github.com/card-io-ecg/card-io-fw.git#fa28ae1841ecc37df40029d8c162491d6c5da3c2"
 
 [[package]]
 name = "macros"
 version = "0.1.0"
-source = "git+https://github.com/card-io-ecg/card-io-fw.git#15ea28843087a3bffeacc8fc9ef796d6d4e02761"
+source = "git+https://github.com/card-io-ecg/card-io-fw.git#fa28ae1841ecc37df40029d8c162491d6c5da3c2"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -2324,7 +2324,7 @@ dependencies = [
 [[package]]
 name = "signal-processing"
 version = "0.1.0"
-source = "git+https://github.com/card-io-ecg/card-io-fw.git#15ea28843087a3bffeacc8fc9ef796d6d4e02761"
+source = "git+https://github.com/card-io-ecg/card-io-fw.git#fa28ae1841ecc37df40029d8c162491d6c5da3c2"
 dependencies = [
  "embedded-io",
  "logger",

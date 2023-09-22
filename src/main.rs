@@ -177,10 +177,13 @@ impl Data {
             let mut calculator = HeartRateCalculator::new(self.fs as f32);
 
             let mut hrs = Vec::new();
-            const DELAY: usize = 57; // The delay of the FIR filter in the calculator
+            const DELAY: usize = 59; // The delay of the FIR filter and differentiator in the calculator
             for sample in self.filtered_ekg.as_ref().unwrap().samples.iter() {
                 if let Some(idx) = calculator.update(*sample) {
-                    hrs.push(idx - DELAY);
+                    // We need to increase the index by the delay because the calculator isn't
+                    // aware of the filtering on its input, which basically cuts of the first few
+                    // samples.
+                    hrs.push(idx + DELAY);
                 }
             }
 
