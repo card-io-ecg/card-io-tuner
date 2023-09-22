@@ -17,7 +17,7 @@ use signal_processing::{
         pli::{adaptation_blocking::AdaptationBlocking, PowerLineFilter},
         Filter,
     },
-    heart_rate::HeartRateCalculator,
+    heart_rate::{HeartRateCalculator, Thresholds},
     moving::sum::Sum,
 };
 
@@ -86,10 +86,14 @@ struct Data {
     filtered_ekg: Option<Ekg>,
     fft: Option<Vec<f32>>,
     hrs: Option<Vec<usize>>,
+    hr_thresholds: Option<Vec<Thresholds>>,
+    hr_complex_lead: Option<Vec<f32>>,
     avg_hr: f32,
+
     high_pass: bool,
     pli: bool,
     low_pass: bool,
+    hr_debug: bool,
 }
 
 impl Data {
@@ -104,10 +108,13 @@ impl Data {
                 filtered_ekg: None,
                 fft: None,
                 hrs: None,
+                hr_thresholds: None,
+                hr_complex_lead: None,
                 avg_hr: 0.0,
                 high_pass: true,
                 pli: true,
                 low_pass: true,
+                hr_debug: false,
             })
         })
     }
@@ -174,29 +181,50 @@ impl Data {
         }
 
         if self.hrs.is_none() {
-            const IGNORE_SAMPLES: usize = 600;
-            let (qrs_idxs, avg_hr) = detect_beats(
+            const IGNORE_SAMPLES: usize = 500;
+            let (qrs_idxs, mut thresholds, mut samples, avg_hr) = detect_beats(
                 &self.filtered_ekg.as_ref().unwrap().samples[IGNORE_SAMPLES..],
                 self.fs as f32,
             );
 
+            for _ in 0..IGNORE_SAMPLES + 58 {
+                thresholds.insert(
+                    0,
+                    Thresholds {
+                        m: None,
+                        f: None,
+                        r: 0.0,
+                    },
+                );
+                samples.insert(0, f32::NAN);
+            }
+
             self.avg_hr = avg_hr;
             self.hrs = Some(qrs_idxs.into_iter().map(|hr| hr + IGNORE_SAMPLES).collect());
+            self.hr_thresholds = Some(thresholds);
+            self.hr_complex_lead = Some(samples);
         }
     }
 }
 
-fn detect_beats(ekg: &[f32], fs: f32) -> (Vec<usize>, f32) {
+fn detect_beats(ekg: &[f32], fs: f32) -> (Vec<usize>, Vec<Thresholds>, Vec<f32>, f32) {
     let mut calculator = HeartRateCalculator::new(fs as f32);
 
     let mut qrs_idxs = Vec::new();
-    const DELAY: usize = 59; // The delay of the FIR filter and differentiator in the calculator
-    for sample in ekg.iter() {
-        if let Some(idx) = calculator.update(*sample) {
-            // We need to increase the index by the delay because the calculator isn't
-            // aware of the filtering on its input, which basically cuts of the first few
-            // samples.
-            qrs_idxs.push(idx + DELAY);
+    let mut thresholds = Vec::new();
+    let mut samples = Vec::new();
+
+    for (idx, sample) in ekg.iter().enumerate() {
+        if let Some(complex_lead) = calculator.update(*sample) {
+            thresholds.push(calculator.thresholds());
+            samples.push(complex_lead);
+
+            if calculator.is_beat() {
+                // We need to increase the index by the delay because the calculator isn't
+                // aware of the filtering on its input, which basically cuts of the first few
+                // samples.
+                qrs_idxs.push(idx);
+            }
         }
     }
 
@@ -208,7 +236,7 @@ fn detect_beats(ekg: &[f32], fs: f32) -> (Vec<usize>, f32) {
         .sum::<f32>()
         / (qrs_idxs.len() as f32 - 1.0);
 
-    (qrs_idxs, avg_hr)
+    (qrs_idxs, thresholds, samples, avg_hr)
 }
 
 #[derive(Debug, PartialEq)]
@@ -267,6 +295,8 @@ fn filter_menu(ui: &mut Ui, data: &mut Data) {
         if ui.checkbox(&mut data.low_pass, "Low-pass filter").changed() {
             data.filtered_ekg = None;
         }
+
+        ui.checkbox(&mut data.hr_debug, "HR debug");
     });
 }
 
@@ -306,8 +336,13 @@ impl EkgTuner {
 
         let mut bottom = 0.0;
         let mut idx = 0;
-        for section in data.filtered_ekg.as_ref().unwrap().samples.chunks(6 * 1000) {
-            let (min, max) = section
+
+        let ekg = data.filtered_ekg.as_ref().unwrap().samples.chunks(6 * 1000);
+        let threshold = data.hr_thresholds.as_ref().unwrap().chunks(6 * 1000);
+        let complex_lead = data.hr_complex_lead.as_ref().unwrap().chunks(6 * 1000);
+
+        for (ekg, (threshold, complex_lead)) in ekg.zip(threshold.zip(complex_lead)) {
+            let (min, max) = ekg
                 .iter()
                 .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), y| {
                     (min.min(*y), max.max(*y))
@@ -340,8 +375,7 @@ impl EkgTuner {
 
             lines.push(
                 Line::new(
-                    section
-                        .iter()
+                    ekg.iter()
                         .enumerate()
                         .map(|(x, y)| [x as f64 / data.fs, (*y - offset) as f64])
                         .collect::<PlotPoints>(),
@@ -349,6 +383,37 @@ impl EkgTuner {
                 .color(Color32::from_rgb(100, 150, 250))
                 .name("EKG"),
             );
+
+            if data.hr_debug {
+                lines.push(
+                    Line::new(
+                        threshold
+                            .iter()
+                            .enumerate()
+                            .map(|(x, y)| {
+                                [
+                                    x as f64 / data.fs,
+                                    (y.total().unwrap_or(y.r) - offset) as f64,
+                                ]
+                            })
+                            .collect::<PlotPoints>(),
+                    )
+                    .color(Color32::YELLOW)
+                    .name("Threshold"),
+                );
+
+                lines.push(
+                    Line::new(
+                        complex_lead
+                            .iter()
+                            .enumerate()
+                            .map(|(x, y)| [x as f64 / data.fs, (*y - offset) as f64])
+                            .collect::<PlotPoints>(),
+                    )
+                    .color(Color32::LIGHT_RED)
+                    .name("Complex lead"),
+                );
+            }
 
             hrs.push(
                 Points::new(
@@ -358,9 +423,9 @@ impl EkgTuner {
                         .iter()
                         .filter_map(|hr_idx| {
                             let hr_idx = *hr_idx as usize;
-                            if (idx..idx + section.len()).contains(&hr_idx) {
+                            if (idx..idx + ekg.len()).contains(&hr_idx) {
                                 let x = hr_idx - idx;
-                                let y = section[x] as f64 - offset as f64;
+                                let y = ekg[x] as f64 - offset as f64;
                                 Some([x as f64 / data.fs, y])
                             } else {
                                 None
@@ -374,7 +439,7 @@ impl EkgTuner {
                 .name(format!("HR: {}", data.avg_hr.round() as i32)),
             );
 
-            idx += section.len();
+            idx += ekg.len();
         }
 
         egui_plot::Plot::new("ekg")
