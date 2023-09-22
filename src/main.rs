@@ -67,7 +67,7 @@ impl Ekg {
 
         log::debug!("Loaded {} samples", samples.len());
 
-        let ignore_start = 2000;
+        let ignore_start = 0;
         let ignore_end = 300;
 
         Ok(Self {
@@ -174,31 +174,41 @@ impl Data {
         }
 
         if self.hrs.is_none() {
-            let mut calculator = HeartRateCalculator::new(self.fs as f32);
-
-            let mut hrs = Vec::new();
-            const DELAY: usize = 59; // The delay of the FIR filter and differentiator in the calculator
-            for sample in self.filtered_ekg.as_ref().unwrap().samples.iter() {
-                if let Some(idx) = calculator.update(*sample) {
-                    // We need to increase the index by the delay because the calculator isn't
-                    // aware of the filtering on its input, which basically cuts of the first few
-                    // samples.
-                    hrs.push(idx + DELAY);
-                }
-            }
-
-            let avg_hr = hrs
-                .iter()
-                .copied()
-                .map_windows(|[a, b]| *b - *a)
-                .map(|diff| 60.0 * self.fs as f32 / diff as f32)
-                .sum::<f32>()
-                / (hrs.len() as f32 - 1.0);
+            const IGNORE_SAMPLES: usize = 600;
+            let (qrs_idxs, avg_hr) = detect_beats(
+                &self.filtered_ekg.as_ref().unwrap().samples[IGNORE_SAMPLES..],
+                self.fs as f32,
+            );
 
             self.avg_hr = avg_hr;
-            self.hrs = Some(hrs);
+            self.hrs = Some(qrs_idxs.into_iter().map(|hr| hr + IGNORE_SAMPLES).collect());
         }
     }
+}
+
+fn detect_beats(ekg: &[f32], fs: f32) -> (Vec<usize>, f32) {
+    let mut calculator = HeartRateCalculator::new(fs as f32);
+
+    let mut qrs_idxs = Vec::new();
+    const DELAY: usize = 59; // The delay of the FIR filter and differentiator in the calculator
+    for sample in ekg.iter() {
+        if let Some(idx) = calculator.update(*sample) {
+            // We need to increase the index by the delay because the calculator isn't
+            // aware of the filtering on its input, which basically cuts of the first few
+            // samples.
+            qrs_idxs.push(idx + DELAY);
+        }
+    }
+
+    let avg_hr = qrs_idxs
+        .iter()
+        .copied()
+        .map_windows(|[a, b]| *b - *a)
+        .map(|diff| 60.0 * fs as f32 / diff as f32)
+        .sum::<f32>()
+        / (qrs_idxs.len() as f32 - 1.0);
+
+    (qrs_idxs, avg_hr)
 }
 
 #[derive(Debug, PartialEq)]
