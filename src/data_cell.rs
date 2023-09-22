@@ -4,8 +4,14 @@ pub struct DataCell<T> {
     data: RefCell<Option<T>>,
 }
 
+impl<T> Default for DataCell<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> DataCell<T> {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             data: RefCell::new(None),
         }

@@ -109,6 +109,7 @@ impl Cycle {
     }
 }
 
+#[derive(Default)]
 struct ProcessedSignal {
     filtered_ekg: DataCell<Ekg>,
     fft: DataCell<Vec<f32>>,
@@ -119,7 +120,11 @@ struct ProcessedSignal {
 }
 
 impl ProcessedSignal {
-    fn clear_processed(&self) {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn clear(&mut self) {
         self.filtered_ekg.clear();
         self.fft.clear();
         self.hrs.clear();
@@ -151,14 +156,7 @@ impl Data {
             Some(Data {
                 path,
                 raw_ekg: ekg,
-                processed: ProcessedSignal {
-                    filtered_ekg: DataCell::new(),
-                    fft: DataCell::new(),
-                    hrs: DataCell::new(),
-                    cycles: DataCell::new(),
-                    adjusted_cycles: DataCell::new(),
-                    majority_cycle: DataCell::new(),
-                },
+                processed: ProcessedSignal::new(),
                 filter_config: FilterConfig {
                     high_pass: true,
                     pli: true,
