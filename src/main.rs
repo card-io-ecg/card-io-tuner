@@ -96,12 +96,14 @@ struct HrData {
     avg_hr: f32,
 }
 
+type Cycle = (usize, Vec<f32>);
+
 struct ProcessedSignal {
     filtered_ekg: DataCell<Ekg>,
     fft: DataCell<Vec<f32>>,
     hrs: DataCell<HrData>,
-    cycles: DataCell<Vec<(usize, Vec<f32>)>>,
-    adjusted_cycles: DataCell<Vec<(usize, Vec<f32>)>>,
+    cycles: DataCell<Vec<Cycle>>,
+    adjusted_cycles: DataCell<Vec<Cycle>>,
     majority_cycle: DataCell<Ekg>,
 }
 
@@ -147,11 +149,11 @@ impl Data {
 
     fn filtered_ekg(&self) -> Ref<'_, Ekg> {
         self.processed.filtered_ekg.get(|| {
-            let mut filtered = self.raw_ekg.clone();
+            let mut samples = self.raw_ekg.samples.to_vec();
 
             if self.filter_config.pli {
                 apply_filter(
-                    &mut filtered,
+                    &mut samples,
                     &mut PowerLineFilter::<AdaptationBlocking<Sum<1200>, 4, 19>, 1>::new(
                         self.raw_ekg.fs as f32,
                         [50.0],
@@ -167,7 +169,7 @@ impl Data {
                     "HalfPowerFrequency", 0.75,
                     "SampleRate", 1000
                 );
-                apply_zero_phase_filter(&mut filtered, &mut high_pass);
+                apply_zero_phase_filter(&mut samples, &mut high_pass);
             }
 
             if self.filter_config.low_pass {
@@ -178,10 +180,13 @@ impl Data {
                     "HalfPowerFrequency", 75,
                     "SampleRate", 1000
                 );
-                apply_zero_phase_filter(&mut filtered, &mut low_pass);
+                apply_zero_phase_filter(&mut samples, &mut low_pass);
             }
 
-            filtered
+            Ekg {
+                samples,
+                fs: self.raw_ekg.fs,
+            }
         })
     }
 
@@ -356,23 +361,22 @@ impl Default for EkgTuner {
     }
 }
 
-fn apply_filter<F: Filter>(signal: &mut Ekg, filter: &mut F) {
-    signal.samples = signal
-        .samples
+fn apply_filter<F: Filter>(signal: &mut Vec<f32>, filter: &mut F) {
+    *signal = signal
         .iter()
         .copied()
         .filter_map(|sample| filter.update(sample))
         .collect::<Vec<_>>();
 }
 
-fn apply_zero_phase_filter<F: Filter>(signal: &mut Ekg, filter: &mut F) {
+fn apply_zero_phase_filter<F: Filter>(signal: &mut Vec<f32>, filter: &mut F) {
     apply_filter(signal, filter);
-    signal.samples.reverse();
+    signal.reverse();
 
     filter.clear();
 
     apply_filter(signal, filter);
-    signal.samples.reverse();
+    signal.reverse();
 }
 
 fn filter_menu(ui: &mut Ui, data: &mut Data) {
