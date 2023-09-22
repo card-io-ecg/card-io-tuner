@@ -181,26 +181,11 @@ impl Data {
         }
 
         if self.hrs.is_none() {
-            const IGNORE_SAMPLES: usize = 500;
-            let (qrs_idxs, mut thresholds, mut samples, avg_hr) = detect_beats(
-                &self.filtered_ekg.as_ref().unwrap().samples[IGNORE_SAMPLES..],
-                self.fs as f32,
-            );
-
-            for _ in 0..IGNORE_SAMPLES + 58 {
-                thresholds.insert(
-                    0,
-                    Thresholds {
-                        m: None,
-                        f: None,
-                        r: 0.0,
-                    },
-                );
-                samples.insert(0, f32::NAN);
-            }
+            let (qrs_idxs, thresholds, samples, avg_hr) =
+                detect_beats(&self.filtered_ekg.as_ref().unwrap().samples, self.fs as f32);
 
             self.avg_hr = avg_hr;
-            self.hrs = Some(qrs_idxs.into_iter().map(|hr| hr + IGNORE_SAMPLES).collect());
+            self.hrs = Some(qrs_idxs);
             self.hr_thresholds = Some(thresholds);
             self.hr_complex_lead = Some(samples);
         }
@@ -400,6 +385,49 @@ impl EkgTuner {
                     )
                     .color(Color32::YELLOW)
                     .name("Threshold"),
+                );
+                lines.push(
+                    Line::new(
+                        threshold
+                            .iter()
+                            .enumerate()
+                            .map(|(x, y)| {
+                                [
+                                    x as f64 / data.fs,
+                                    (y.m.unwrap_or(f32::NAN) - offset) as f64,
+                                ]
+                            })
+                            .collect::<PlotPoints>(),
+                    )
+                    .color(Color32::WHITE)
+                    .name("M"),
+                );
+                lines.push(
+                    Line::new(
+                        threshold
+                            .iter()
+                            .enumerate()
+                            .map(|(x, y)| {
+                                [
+                                    x as f64 / data.fs,
+                                    (y.f.unwrap_or(f32::NAN) - offset) as f64,
+                                ]
+                            })
+                            .collect::<PlotPoints>(),
+                    )
+                    .color(Color32::GRAY)
+                    .name("F"),
+                );
+                lines.push(
+                    Line::new(
+                        threshold
+                            .iter()
+                            .enumerate()
+                            .map(|(x, y)| [x as f64 / data.fs, (y.r - offset) as f64])
+                            .collect::<PlotPoints>(),
+                    )
+                    .color(Color32::GREEN)
+                    .name("R"),
                 );
 
                 lines.push(
