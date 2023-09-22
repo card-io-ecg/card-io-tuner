@@ -238,6 +238,25 @@ fn apply_zero_phase_filter<F: Filter>(signal: &mut Ekg, filter: &mut F) {
     signal.samples.reverse();
 }
 
+fn filter_menu(ui: &mut Ui, data: &mut Data) {
+    egui::Grid::new("filter_opts").show(ui, |ui| {
+        if ui
+            .checkbox(&mut data.high_pass, "High-pass filter")
+            .changed()
+        {
+            data.filtered_ekg = None;
+        }
+
+        if ui.checkbox(&mut data.pli, "PLI filter").changed() {
+            data.filtered_ekg = None;
+        }
+
+        if ui.checkbox(&mut data.low_pass, "Low-pass filter").changed() {
+            data.filtered_ekg = None;
+        }
+    });
+}
+
 impl EkgTuner {
     fn ekg_tab(ui: &mut Ui, data: &mut Data) {
         Self::plot_signal(ui, data);
@@ -393,24 +412,7 @@ impl EkgTuner {
                 }
             })
             .response
-            .context_menu(|ui| {
-                egui::Grid::new("filter_opts").show(ui, |ui| {
-                    if ui
-                        .checkbox(&mut data.high_pass, "High-pass filter")
-                        .changed()
-                    {
-                        data.filtered_ekg = None;
-                    }
-
-                    if ui.checkbox(&mut data.pli, "PLI filter").changed() {
-                        data.filtered_ekg = None;
-                    }
-
-                    if ui.checkbox(&mut data.low_pass, "Low-pass filter").changed() {
-                        data.filtered_ekg = None;
-                    }
-                });
-            });
+            .context_menu(|ui| filter_menu(ui, data));
     }
 
     fn fft_tab(ui: &mut Ui, data: &mut Data) {
@@ -438,24 +440,7 @@ impl EkgTuner {
                 plot_ui.line(fft);
             })
             .response
-            .context_menu(|ui| {
-                egui::Grid::new("filter_opts").show(ui, |ui| {
-                    if ui
-                        .checkbox(&mut data.high_pass, "High-pass filter")
-                        .changed()
-                    {
-                        data.filtered_ekg = None;
-                    }
-
-                    if ui.checkbox(&mut data.pli, "PLI filter").changed() {
-                        data.filtered_ekg = None;
-                    }
-
-                    if ui.checkbox(&mut data.low_pass, "Low-pass filter").changed() {
-                        data.filtered_ekg = None;
-                    }
-                });
-            });
+            .context_menu(|ui| filter_menu(ui, data));
     }
 }
 
