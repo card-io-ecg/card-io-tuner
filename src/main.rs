@@ -1,11 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![feature(iter_map_windows)]
 
-use std::{
-    cell::{Ref, RefCell},
-    env,
-    path::PathBuf,
-};
+use std::{cell::Ref, env, path::PathBuf};
 
 use eframe::{
     egui::{self, PointerButton, Ui},
@@ -24,6 +20,10 @@ use signal_processing::{
     heart_rate::{HeartRateCalculator, Thresholds},
     moving::sum::Sum,
 };
+
+use crate::data_cell::DataCell;
+
+mod data_cell;
 
 fn main() -> Result<(), eframe::Error> {
     env::set_var("RUST_LOG", "card_io_tuner=debug");
@@ -88,32 +88,6 @@ struct HrData {
     thresholds: Vec<Thresholds>,
     complex_lead: Vec<f32>,
     avg_hr: f32,
-}
-
-struct DataCell<T> {
-    data: RefCell<Option<T>>,
-}
-
-impl<T> DataCell<T> {
-    fn new() -> Self {
-        Self {
-            data: RefCell::new(None),
-        }
-    }
-
-    fn get(&self, initializer: impl FnOnce() -> T) -> Ref<'_, T> {
-        if self.data.borrow().is_none() {
-            *self.data.borrow_mut() = Some(initializer());
-        }
-
-        Ref::map(self.data.borrow(), |data| {
-            data.as_ref().expect("data should be Some")
-        })
-    }
-
-    fn clear(&mut self) {
-        self.data.borrow_mut().take();
-    }
 }
 
 struct ProcessedSignal {
