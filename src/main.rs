@@ -118,6 +118,17 @@ struct ProcessedSignal {
     majority_cycle: DataCell<Cycle>,
 }
 
+impl ProcessedSignal {
+    fn clear_processed(&self) {
+        self.filtered_ekg.clear();
+        self.fft.clear();
+        self.hrs.clear();
+        self.cycles.clear();
+        self.adjusted_cycles.clear();
+        self.majority_cycle.clear();
+    }
+}
+
 struct Data {
     path: PathBuf,
     raw_ekg: Ekg,
@@ -321,10 +332,7 @@ impl Data {
     }
 
     fn clear_processed(&mut self) {
-        self.processed.filtered_ekg.clear();
-        self.processed.fft.clear();
-        self.processed.hrs.clear();
-        self.processed.majority_cycle.clear();
+        self.processed.clear();
     }
 }
 
