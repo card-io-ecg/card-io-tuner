@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![feature(iter_map_windows)]
 
-use std::{cell::Ref, env, path::PathBuf, sync::Arc};
+use std::{cell::Ref, env, ops::Range, path::PathBuf, sync::Arc};
 
 use eframe::{
     egui::{self, PointerButton, Ui},
@@ -98,6 +98,7 @@ struct HrData {
     complex_lead: Vec<f32>,
 }
 
+#[derive(Clone)]
 pub struct Cycle {
     samples: Arc<[f32]>,
     start: usize,
@@ -117,6 +118,7 @@ struct ProcessedSignal {
     hrs: DataCell<HrData>,
     cycles: DataCell<Vec<Cycle>>,
     adjusted_cycles: DataCell<Vec<Cycle>>,
+    average_cycle: DataCell<Cycle>,
     majority_cycle: DataCell<Cycle>,
 }
 
@@ -131,6 +133,7 @@ impl ProcessedSignal {
         self.hrs.clear();
         self.cycles.clear();
         self.adjusted_cycles.clear();
+        self.average_cycle.clear();
         self.majority_cycle.clear();
     }
 }
@@ -254,6 +257,16 @@ impl Data {
             .map_windows(move |[a, b]| (*b - *a) as f64 / fs)
     }
 
+    fn adjusted_rr_intervals(&self) -> impl Iterator<Item = f64> {
+        let fs = self.filtered_ekg().fs;
+
+        self.adjusted_cycles()
+            .clone()
+            .into_iter()
+            .map(|cycle| cycle.position)
+            .map_windows(move |[a, b]| (*b - *a) as f64 / fs)
+    }
+
     fn avg_rr(&self) -> f32 {
         let (count, sum) = self
             .rr_intervals()
@@ -263,8 +276,17 @@ impl Data {
         sum / count as f32
     }
 
+    fn adjusted_avg_rr(&self) -> f32 {
+        let (count, sum) = self
+            .adjusted_rr_intervals()
+            .map(|rr| rr as f32)
+            .fold((0, 0.0), |(count, sum), hr| (count + 1, sum + hr));
+
+        sum / count as f32
+    }
+
     fn avg_hr(&self) -> f32 {
-        60.0 / self.avg_rr()
+        60.0 / self.adjusted_avg_rr()
     }
 
     fn cycles(&self) -> Ref<'_, Vec<Cycle>> {
@@ -298,7 +320,7 @@ impl Data {
             let filtered = self.filtered_ekg();
 
             let fs = (filtered.fs as f32).sps();
-            let avg_rr = 60.0 / self.avg_hr();
+            let avg_rr = self.avg_rr();
 
             let pre = fs.s_to_samples(avg_rr / 3.0);
             let post = fs.s_to_samples(avg_rr * 2.0 / 3.0);
@@ -310,16 +332,36 @@ impl Data {
 
             let all_average = average_cycle(all_cycles.clone());
 
+            let mut max = f32::NEG_INFINITY;
+            let max_pos = all_average
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, y)| {
+                    if *y > max {
+                        max = *y;
+                        Some(idx)
+                    } else {
+                        None
+                    }
+                })
+                .last()
+                .unwrap();
+
             // For QRS adjustment, we're using the 50-50 ms window around the peak of the QRS
             let avg_qrs_width = fs.ms_to_samples(25.0);
-            let avg_qrs = &all_average[pre - avg_qrs_width..][..(2 * avg_qrs_width)];
+            let avg_qrs = &all_average[max_pos - avg_qrs_width..][..2 * avg_qrs_width];
+
+            let avg_max_offset = max_pos as isize - pre as isize;
 
             let adjusted_idxs = cycle_idxs.map(|idx| {
-                (idx as isize
-                    + adjust_time(
-                        &filtered.samples[idx - (avg_qrs_width * 2)..idx + (avg_qrs_width * 2)],
-                        &avg_qrs,
-                    )) as usize
+                let idx = idx as isize;
+                let offset_to_avg = adjust_time(
+                    &filtered.samples[(idx + avg_max_offset) as usize - avg_qrs.len()..]
+                        [..2 * avg_qrs.len()],
+                    &avg_qrs,
+                );
+
+                (idx + avg_max_offset + offset_to_avg) as usize
             });
 
             adjusted_idxs
@@ -333,17 +375,47 @@ impl Data {
         })
     }
 
+    fn average_cycle(&self) -> Ref<'_, Cycle> {
+        self.processed.average_cycle.get(|| {
+            let adjusted_cycles = self.adjusted_cycles();
+
+            let avg = average_cycle(adjusted_cycles.iter().map(|cycle| cycle.as_slice()));
+
+            let mut max = f32::NEG_INFINITY;
+            let max_pos = avg
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, y)| {
+                    max = max.max(*y);
+                    if *y == max {
+                        Some(idx)
+                    } else {
+                        None
+                    }
+                })
+                .last()
+                .unwrap();
+
+            Cycle {
+                position: max_pos,
+                start: 0,
+                end: avg.len(),
+                samples: Arc::from(avg),
+            }
+        })
+    }
+
     fn majority_cycle(&self) -> Ref<'_, Cycle> {
         self.processed.majority_cycle.get(|| {
             let adjusted_cycles = self.adjusted_cycles();
 
-            let avg = average_cycle(adjusted_cycles.iter().map(|cycle| cycle.as_slice()));
+            let avg = self.average_cycle();
 
             let autocorr = cross_correlate(avg.as_slice(), avg.as_slice());
 
             let similarities = adjusted_cycles
                 .iter()
-                .map(|cycle| cross_correlate(cycle.as_slice(), &avg))
+                .map(|cycle| cross_correlate(cycle.as_slice(), avg.as_slice()))
                 .map(|xcorr| similarity(xcorr, autocorr))
                 .collect::<Vec<_>>();
 
@@ -513,6 +585,53 @@ fn generate_grid_marks(input: GridInput, scale: f64, steps: &[i32]) -> Vec<GridM
     marks
 }
 
+struct SignalCharts<'a> {
+    lines: &'a mut Vec<Line>,
+    points: &'a mut Vec<Points>,
+    offset: f64,
+    fs: f64,
+    samples: Range<usize>,
+}
+impl SignalCharts<'_> {
+    fn to_point(&self, (x, y): (usize, f64)) -> [f64; 2] {
+        [x as f64 / self.fs, y - self.offset]
+    }
+
+    fn push(
+        &mut self,
+        iter: impl Iterator<Item = f64>,
+        color: impl Into<Color32>,
+        name: impl ToString,
+    ) {
+        let line = iter
+            .enumerate()
+            .map(|p| self.to_point(p))
+            .collect::<PlotPoints>();
+
+        self.lines.push(Line::new(line).color(color).name(name));
+    }
+
+    fn push_points(
+        &mut self,
+        iter: impl Iterator<Item = (usize, f64)>,
+        color: impl Into<Color32>,
+        name: impl ToString,
+    ) {
+        let points = iter
+            .filter(|(idx, _y)| self.samples.contains(idx))
+            .map(|(idx, y)| self.to_point((idx - self.samples.start, y)))
+            .collect::<PlotPoints>();
+
+        self.points.push(
+            Points::new(points)
+                .color(color)
+                .name(name)
+                .shape(MarkerShape::Asterisk)
+                .radius(4.0),
+        );
+    }
+}
+
 impl EkgTuner {
     fn ekg_tab(ui: &mut Ui, data: &mut Data) {
         Self::plot_signal(ui, data);
@@ -520,7 +639,7 @@ impl EkgTuner {
 
     fn plot_signal(ui: &mut egui::Ui, data: &mut Data) {
         let mut lines = vec![];
-        let mut hrs = vec![];
+        let mut points = vec![];
 
         let mut bottom = 0.0;
         let mut idx = 0;
@@ -529,6 +648,7 @@ impl EkgTuner {
         {
             let hr_data = data.hrs();
             let ekg_data = data.filtered_ekg();
+            let adjusted_cycles = data.adjusted_cycles();
 
             let ekg = ekg_data.samples.chunks(6 * 1000);
             let threshold = hr_data.thresholds.chunks(6 * 1000);
@@ -542,17 +662,25 @@ impl EkgTuner {
                     });
 
                 let height = max - min;
-                let offset = max - bottom;
+                let offset = (max - bottom) as f64;
                 bottom -= height + 0.0005; // 500uV margin
+
+                let mut signals = SignalCharts {
+                    lines: &mut lines,
+                    points: &mut points,
+                    offset,
+                    fs: ekg_data.fs,
+                    samples: idx..idx + ekg.len(),
+                };
 
                 if !marker_added {
                     marker_added = true;
                     // to nearest 1mV
                     let marker_y =
-                        ((max - offset) as f64 * ekg_data.fs).floor() / ekg_data.fs - 0.001;
+                        ((max as f64 - offset) * ekg_data.fs).floor() / ekg_data.fs - 0.001;
                     let marker_x = -0.2;
 
-                    lines.push(
+                    signals.lines.push(
                         Line::new(
                             [
                                 [marker_x + -0.04, marker_y + 0.0],
@@ -569,113 +697,49 @@ impl EkgTuner {
                     );
                 }
 
-                lines.push(
-                    Line::new(
-                        ekg.iter()
-                            .enumerate()
-                            .map(|(x, y)| [x as f64 / ekg_data.fs, (*y - offset) as f64])
-                            .collect::<PlotPoints>(),
-                    )
-                    .color(EKG_COLOR)
-                    .name("EKG"),
-                );
-
-                hrs.push(
-                    Points::new(
-                        hr_data
-                            .detections
-                            .iter()
-                            .filter_map(|hr_idx| {
-                                let hr_idx = *hr_idx as usize;
-                                if (idx..idx + ekg.len()).contains(&hr_idx) {
-                                    let x = hr_idx - idx;
-                                    let y = ekg[x] as f64 - offset as f64;
-                                    Some([x as f64 / ekg_data.fs, y])
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect::<PlotPoints>(),
-                    )
-                    .color(Color32::LIGHT_RED)
-                    .shape(MarkerShape::Asterisk)
-                    .radius(4.0)
-                    .name(format!("HR: {}", data.avg_hr().round() as i32)),
-                );
+                signals.push(ekg.iter().map(|y| *y as f64), EKG_COLOR, "EKG");
 
                 if data.hr_debug {
-                    lines.push(
-                        Line::new(
-                            threshold
-                                .iter()
-                                .enumerate()
-                                .map(|(x, y)| {
-                                    [
-                                        x as f64 / ekg_data.fs,
-                                        (y.total().unwrap_or(y.r) - offset) as f64,
-                                    ]
-                                })
-                                .collect::<PlotPoints>(),
-                        )
-                        .color(Color32::YELLOW)
-                        .name("Threshold"),
+                    signals.push(
+                        threshold.iter().map(|y| y.total().unwrap_or(y.r) as f64),
+                        Color32::YELLOW,
+                        "Threshold",
                     );
-                    lines.push(
-                        Line::new(
-                            threshold
-                                .iter()
-                                .enumerate()
-                                .map(|(x, y)| {
-                                    [
-                                        x as f64 / ekg_data.fs,
-                                        (y.m.unwrap_or(f32::NAN) - offset) as f64,
-                                    ]
-                                })
-                                .collect::<PlotPoints>(),
-                        )
-                        .color(Color32::WHITE)
-                        .name("M"),
+                    signals.push(
+                        threshold.iter().map(|y| y.m.unwrap_or(f32::NAN) as f64),
+                        Color32::WHITE,
+                        "M",
                     );
-                    lines.push(
-                        Line::new(
-                            threshold
-                                .iter()
-                                .enumerate()
-                                .map(|(x, y)| {
-                                    [
-                                        x as f64 / ekg_data.fs,
-                                        (y.f.unwrap_or(f32::NAN) - offset) as f64,
-                                    ]
-                                })
-                                .collect::<PlotPoints>(),
-                        )
-                        .color(Color32::GRAY)
-                        .name("F"),
+                    signals.push(
+                        threshold.iter().map(|y| y.f.unwrap_or(f32::NAN) as f64),
+                        Color32::GRAY,
+                        "F",
                     );
-                    lines.push(
-                        Line::new(
-                            threshold
-                                .iter()
-                                .enumerate()
-                                .map(|(x, y)| [x as f64 / ekg_data.fs, (y.r - offset) as f64])
-                                .collect::<PlotPoints>(),
-                        )
-                        .color(Color32::GREEN)
-                        .name("R"),
-                    );
-
-                    lines.push(
-                        Line::new(
-                            complex_lead
-                                .iter()
-                                .enumerate()
-                                .map(|(x, y)| [x as f64 / ekg_data.fs, (*y - offset) as f64])
-                                .collect::<PlotPoints>(),
-                        )
-                        .color(Color32::LIGHT_RED)
-                        .name("Complex lead"),
+                    signals.push(threshold.iter().map(|y| y.r as f64), Color32::GREEN, "R");
+                    signals.push(
+                        complex_lead.iter().map(|y| *y as f64),
+                        Color32::LIGHT_RED,
+                        "Complex lead",
                     );
                 }
+
+                // signals.push_points(
+                //     hr_data
+                //         .detections
+                //         .iter()
+                //         .map(|idx| (*idx, ekg_data.samples[*idx] as f64)),
+                //     Color32::LIGHT_RED,
+                //     "Raw HR",
+                // );
+
+                signals.push_points(
+                    adjusted_cycles
+                        .iter()
+                        .map(|cycle| cycle.position)
+                        .map(|idx| (idx, ekg_data.samples[idx] as f64)),
+                    Color32::LIGHT_GREEN,
+                    format!("HR: {}", data.avg_hr().round() as i32),
+                );
 
                 idx += ekg.len();
             }
@@ -694,7 +758,7 @@ impl EkgTuner {
                 for line in lines {
                     plot_ui.line(line);
                 }
-                for points in hrs {
+                for points in points {
                     plot_ui.points(points);
                 }
             })
@@ -770,20 +834,23 @@ impl EkgTuner {
         let mut lines = vec![];
 
         let fs = data.filtered_ekg().fs;
-        let cycle = data.majority_cycle();
+        let mut add_cycle = |cycle: &Cycle, name: &str, color: Color32| {
+            lines.push(
+                Line::new(
+                    cycle
+                        .samples
+                        .iter()
+                        .enumerate()
+                        .map(|(x, y)| [(x as f64 - cycle.position as f64) / fs, *y as f64])
+                        .collect::<PlotPoints>(),
+                )
+                .color(color)
+                .name(name),
+            );
+        };
 
-        lines.push(
-            Line::new(
-                cycle
-                    .samples
-                    .iter()
-                    .enumerate()
-                    .map(|(x, y)| [(x as f64 - cycle.position as f64) / fs, *y as f64])
-                    .collect::<PlotPoints>(),
-            )
-            .color(EKG_COLOR)
-            .name("Majority cycle"),
-        );
+        // add_cycle(&data.average_cycle(), "Average cycle", Color32::LIGHT_RED);
+        add_cycle(&data.majority_cycle(), "Majority cycle", EKG_COLOR);
 
         egui_plot::Plot::new("cycle")
             .legend(Legend::default())
