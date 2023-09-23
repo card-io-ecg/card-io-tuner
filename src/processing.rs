@@ -50,7 +50,6 @@ pub struct Context {
     pub config: Config,
 }
 
-#[derive(Default)]
 pub struct ProcessedSignal {
     filtered_ekg: DataCell<Ekg>,
     fft: DataCell<Vec<f32>>,
@@ -65,7 +64,17 @@ pub struct ProcessedSignal {
 
 impl ProcessedSignal {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            filtered_ekg: DataCell::new("filtered_ekg"),
+            fft: DataCell::new("fft"),
+            hrs: DataCell::new("hrs"),
+            cycles: DataCell::new("cycles"),
+            adjusted_cycles: DataCell::new("adjusted_cycles"),
+            average_cycle: DataCell::new("average_cycle"),
+            majority_cycle: DataCell::new("majority_cycle"),
+            rr_intervals: DataCell::new("rr_intervals"),
+            adjusted_rr_intervals: DataCell::new("adjusted_rr_intervals"),
+        }
     }
 
     pub fn clear(&mut self) {
