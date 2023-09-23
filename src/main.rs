@@ -96,7 +96,6 @@ struct HrData {
     detections: Vec<usize>,
     thresholds: Vec<Thresholds>,
     complex_lead: Vec<f32>,
-    avg_hr: f32,
 }
 
 pub struct Cycle {
@@ -234,20 +233,38 @@ impl Data {
     fn hrs(&self) -> Ref<'_, HrData> {
         self.processed.hrs.get(|| {
             let filtered = self.filtered_ekg();
-            let (qrs_idxs, thresholds, samples, avg_hr) =
+            let (qrs_idxs, thresholds, samples) =
                 detect_beats(&filtered.samples, filtered.fs as f32);
 
             HrData {
                 detections: qrs_idxs,
                 thresholds,
                 complex_lead: samples,
-                avg_hr,
             }
         })
     }
 
+    fn rr_intervals(&self) -> impl Iterator<Item = f64> {
+        let fs = self.filtered_ekg().fs;
+
+        self.hrs()
+            .detections
+            .clone()
+            .into_iter()
+            .map_windows(move |[a, b]| (*b - *a) as f64 / fs)
+    }
+
+    fn avg_rr(&self) -> f32 {
+        let (count, sum) = self
+            .rr_intervals()
+            .map(|rr| rr as f32)
+            .fold((0, 0.0), |(count, sum), hr| (count + 1, sum + hr));
+
+        sum / count as f32
+    }
+
     fn avg_hr(&self) -> f32 {
-        self.hrs().avg_hr
+        60.0 / self.avg_rr()
     }
 
     fn cycles(&self) -> Ref<'_, Vec<Cycle>> {
@@ -256,7 +273,7 @@ impl Data {
             let hrs = self.hrs();
 
             let fs = (filtered.fs as f32).sps();
-            let avg_rr = 60.0 / self.avg_hr();
+            let avg_rr = self.avg_rr();
 
             let pre = fs.s_to_samples(avg_rr / 3.0);
             let post = fs.s_to_samples(avg_rr * 2.0 / 3.0);
@@ -383,7 +400,7 @@ fn similarity(corr: f32, max_corr: f32) -> f32 {
     1.0 - (1.0 - corr / max_corr).abs()
 }
 
-fn detect_beats(ekg: &[f32], fs: f32) -> (Vec<usize>, Vec<Thresholds>, Vec<f32>, f32) {
+fn detect_beats(ekg: &[f32], fs: f32) -> (Vec<usize>, Vec<Thresholds>, Vec<f32>) {
     let mut calculator = HeartRateCalculator::new(fs as f32);
 
     let mut qrs_idxs = Vec::new();
@@ -404,15 +421,7 @@ fn detect_beats(ekg: &[f32], fs: f32) -> (Vec<usize>, Vec<Thresholds>, Vec<f32>,
         }
     }
 
-    let avg_hr = qrs_idxs
-        .iter()
-        .copied()
-        .map_windows(|[a, b]| *b - *a)
-        .map(|diff| 60.0 * fs as f32 / diff as f32)
-        .sum::<f32>()
-        / (qrs_idxs.len() as f32 - 1.0);
-
-    (qrs_idxs, thresholds, samples, avg_hr)
+    (qrs_idxs, thresholds, samples)
 }
 
 #[derive(Debug, PartialEq)]
@@ -591,7 +600,7 @@ impl EkgTuner {
                     .color(Color32::LIGHT_RED)
                     .shape(MarkerShape::Asterisk)
                     .radius(4.0)
-                    .name(format!("HR: {}", hr_data.avg_hr.round() as i32)),
+                    .name(format!("HR: {}", data.avg_hr().round() as i32)),
                 );
 
                 if data.hr_debug {
