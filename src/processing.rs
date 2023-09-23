@@ -360,6 +360,12 @@ impl ProcessedSignal {
 
             let majority_cycle = average_cycle(similar_cycles.clone());
 
+            // TODO: this case can be avoided by using a better similarity metric based on clustering and artifact detection
+            if majority_cycle.is_empty() {
+                log::warn!("No similar cycles found");
+                return avg.clone();
+            }
+
             log::debug!(
                 "Similarity with average: {}, based on {}/{} cycles",
                 similarity(
