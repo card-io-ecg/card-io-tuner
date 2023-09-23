@@ -66,7 +66,7 @@ impl Ekg {
         log::debug!("Loaded {} samples", samples.len());
 
         let ignore_start = 0;
-        let ignore_end = 300;
+        let ignore_end = 200;
 
         Ok(Self {
             fs: 1000.0,

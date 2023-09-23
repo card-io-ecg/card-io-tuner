@@ -126,6 +126,8 @@ impl ProcessedSignal {
                 apply_zero_phase_filter(&mut samples, low_pass);
             }
 
+            debias(&mut samples);
+
             Ekg {
                 samples: Arc::from(samples),
                 fs: context.raw_ekg.fs,
@@ -405,7 +407,13 @@ impl ProcessedSignal {
     }
 }
 
+fn debias(signal: &mut Vec<f32>) {
+    let first = signal[0];
+    signal.iter_mut().for_each(|x| *x = *x - first);
+}
+
 fn apply_filter<F: Filter>(signal: &mut Vec<f32>, mut filter: F) {
+    debias(signal);
     *signal = signal
         .iter()
         .copied()
