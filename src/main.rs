@@ -236,8 +236,28 @@ impl Data {
     fn hrs(&self) -> Ref<'_, HrData> {
         self.processed.hrs.get(|| {
             let filtered = self.filtered_ekg();
-            let (qrs_idxs, thresholds, samples) =
-                detect_beats(&filtered.samples, filtered.fs as f32);
+
+            let ekg: &[f32] = &filtered.samples;
+            let fs = filtered.fs as f32;
+            let mut calculator = HeartRateCalculator::new(fs as f32);
+
+            let mut qrs_idxs = Vec::new();
+            let mut thresholds = Vec::new();
+            let mut samples = Vec::new();
+
+            for (idx, sample) in ekg.iter().enumerate() {
+                if let Some(complex_lead) = calculator.update(*sample) {
+                    thresholds.push(calculator.thresholds());
+                    samples.push(complex_lead);
+
+                    if calculator.is_beat() {
+                        // We need to increase the index by the delay because the calculator isn't
+                        // aware of the filtering on its input, which basically cuts of the first few
+                        // samples.
+                        qrs_idxs.push(idx);
+                    }
+                }
+            }
 
             HrData {
                 detections: qrs_idxs,
@@ -470,30 +490,6 @@ impl Data {
 
 fn similarity(corr: f32, max_corr: f32) -> f32 {
     1.0 - (1.0 - corr / max_corr).abs()
-}
-
-fn detect_beats(ekg: &[f32], fs: f32) -> (Vec<usize>, Vec<Thresholds>, Vec<f32>) {
-    let mut calculator = HeartRateCalculator::new(fs as f32);
-
-    let mut qrs_idxs = Vec::new();
-    let mut thresholds = Vec::new();
-    let mut samples = Vec::new();
-
-    for (idx, sample) in ekg.iter().enumerate() {
-        if let Some(complex_lead) = calculator.update(*sample) {
-            thresholds.push(calculator.thresholds());
-            samples.push(complex_lead);
-
-            if calculator.is_beat() {
-                // We need to increase the index by the delay because the calculator isn't
-                // aware of the filtering on its input, which basically cuts of the first few
-                // samples.
-                qrs_idxs.push(idx);
-            }
-        }
-    }
-
-    (qrs_idxs, thresholds, samples)
 }
 
 #[derive(Debug, PartialEq)]
