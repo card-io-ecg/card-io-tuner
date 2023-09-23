@@ -8,26 +8,13 @@ use eframe::{
     epaint::Color32,
 };
 use egui_plot::{AxisBools, GridInput, GridMark, Legend, Line, MarkerShape, PlotPoints, Points};
-use rustfft::num_complex::{Complex, ComplexFloat};
-use signal_processing::{
-    compressing_buffer::EkgFormat,
-    designfilt,
-    filter::{
-        iir::{HighPass, Iir, LowPass},
-        pli::{adaptation_blocking::AdaptationBlocking, PowerLineFilter},
-        Filter,
-    },
-    heart_rate::{HeartRateCalculator, SamplingFrequencyExt, Thresholds},
-    moving::sum::Sum,
-};
+use signal_processing::compressing_buffer::EkgFormat;
 
-use crate::{
-    analysis::{adjust_time, average, average_cycle, cross_correlate, similarity},
-    data_cell::DataCell,
-};
+use crate::processing::{Config, Context, Cycle, HrData, ProcessedSignal};
 
 mod analysis;
 mod data_cell;
+mod processing;
 
 fn main() -> Result<(), eframe::Error> {
     env::set_var("RUST_LOG", "card_io_tuner=debug");
@@ -92,68 +79,19 @@ impl Ekg {
     }
 }
 
-struct HrData {
-    detections: Vec<usize>,
-    thresholds: Vec<Thresholds>,
-    complex_lead: Vec<f32>,
-}
-
-#[derive(Clone)]
-pub struct Cycle {
-    samples: Arc<[f32]>,
-    start: usize,
-    position: usize,
-    end: usize,
-}
-impl Cycle {
-    fn as_slice(&self) -> &[f32] {
-        &self.samples[self.start..self.end]
-    }
-}
-
-#[derive(Default)]
-struct ProcessedSignal {
-    filtered_ekg: DataCell<Ekg>,
-    fft: DataCell<Vec<f32>>,
-    hrs: DataCell<HrData>,
-    cycles: DataCell<Vec<Cycle>>,
-    adjusted_cycles: DataCell<Vec<Cycle>>,
-    average_cycle: DataCell<Cycle>,
-    majority_cycle: DataCell<Cycle>,
-    rr_intervals: DataCell<Vec<f64>>,
-    adjusted_rr_intervals: DataCell<Vec<f64>>,
-}
-
-impl ProcessedSignal {
-    fn new() -> Self {
-        Self::default()
-    }
-
-    fn clear(&mut self) {
-        self.filtered_ekg.clear();
-        self.fft.clear();
-        self.hrs.clear();
-        self.cycles.clear();
-        self.adjusted_cycles.clear();
-        self.average_cycle.clear();
-        self.majority_cycle.clear();
-        self.rr_intervals.clear();
-        self.adjusted_rr_intervals.clear();
-    }
-}
-
-struct Config {
-    high_pass: bool,
-    pli: bool,
-    low_pass: bool,
-    hr_debug: bool,
-}
-
 struct Data {
     path: PathBuf,
-    raw_ekg: Ekg,
     processed: ProcessedSignal,
-    config: Config,
+    context: Context,
+}
+
+macro_rules! query {
+    ($name:ident: $ty:path) => {
+        #[allow(dead_code)]
+        fn $name(&self) -> Ref<'_, $ty> {
+            self.processed.$name(&self.context)
+        }
+    };
 }
 
 impl Data {
@@ -163,331 +101,32 @@ impl Data {
             let ekg = Ekg::load(bytes).ok()?;
             Some(Data {
                 path,
-                raw_ekg: ekg,
                 processed: ProcessedSignal::new(),
-                config: Config {
-                    high_pass: true,
-                    pli: true,
-                    low_pass: true,
-                    hr_debug: false,
+                context: Context {
+                    raw_ekg: ekg,
+                    config: Config {
+                        high_pass: true,
+                        pli: true,
+                        low_pass: true,
+                        hr_debug: false,
+                    },
                 },
             })
         })
     }
 
-    fn filtered_ekg(&self) -> Ref<'_, Ekg> {
-        self.processed.filtered_ekg.get(|| {
-            log::debug!("Data::filtered_ekg");
-            let mut samples = self.raw_ekg.samples.to_vec();
-
-            if self.config.pli {
-                apply_filter(
-                    &mut samples,
-                    PowerLineFilter::<AdaptationBlocking<Sum<1200>, 4, 19>, 1>::new(
-                        self.raw_ekg.fs as f32,
-                        [50.0],
-                    ),
-                );
-            }
-
-            if self.config.high_pass {
-                #[rustfmt::skip]
-                let high_pass = designfilt!(
-                    "highpassiir",
-                    "FilterOrder", 2,
-                    "HalfPowerFrequency", 0.75,
-                    "SampleRate", 1000
-                );
-                apply_zero_phase_filter(&mut samples, high_pass);
-            }
-
-            if self.config.low_pass {
-                #[rustfmt::skip]
-                let low_pass = designfilt!(
-                    "lowpassiir",
-                    "FilterOrder", 2,
-                    "HalfPowerFrequency", 75,
-                    "SampleRate", 1000
-                );
-                apply_zero_phase_filter(&mut samples, low_pass);
-            }
-
-            Ekg {
-                samples: Arc::from(samples),
-                fs: self.raw_ekg.fs,
-            }
-        })
-    }
-
-    fn fft(&self) -> Ref<'_, Vec<f32>> {
-        self.processed.fft.get(|| {
-            log::debug!("Data::fft");
-            let mut samples = self
-                .filtered_ekg()
-                .samples
-                .iter()
-                .copied()
-                .map(|y| Complex { re: y, im: 0.0 })
-                .collect::<Vec<_>>();
-
-            let mut planner = rustfft::FftPlanner::new();
-            let fft = planner.plan_fft_forward(samples.len());
-
-            fft.process(&mut samples);
-
-            samples.iter().copied().map(|c| c.abs()).collect::<Vec<_>>()
-        })
-    }
-
-    fn hrs(&self) -> Ref<'_, HrData> {
-        self.processed.hrs.get(|| {
-            log::debug!("Data::hrs");
-            let filtered = self.filtered_ekg();
-
-            let ekg: &[f32] = &filtered.samples;
-            let fs = filtered.fs as f32;
-            let mut calculator = HeartRateCalculator::new(fs as f32);
-
-            let mut qrs_idxs = Vec::new();
-            let mut thresholds = Vec::new();
-            let mut samples = Vec::new();
-
-            for (idx, sample) in ekg.iter().enumerate() {
-                if let Some(complex_lead) = calculator.update(*sample) {
-                    thresholds.push(calculator.thresholds());
-                    samples.push(complex_lead);
-
-                    if calculator.is_beat() {
-                        // We need to increase the index by the delay because the calculator isn't
-                        // aware of the filtering on its input, which basically cuts of the first few
-                        // samples.
-                        qrs_idxs.push(idx);
-                    }
-                }
-            }
-
-            HrData {
-                detections: qrs_idxs,
-                thresholds,
-                complex_lead: samples,
-            }
-        })
-    }
-
-    fn rr_intervals(&self) -> Ref<'_, Vec<f64>> {
-        self.processed.rr_intervals.get(|| {
-            log::debug!("Data::rr_intervals");
-            let fs = self.filtered_ekg().fs;
-
-            self.hrs()
-                .detections
-                .iter()
-                .map_windows(move |[a, b]| (*b - *a) as f64 / fs)
-                .collect()
-        })
-    }
-
-    fn adjusted_rr_intervals(&self) -> Ref<'_, Vec<f64>> {
-        self.processed.adjusted_rr_intervals.get(|| {
-            log::debug!("Data::adjusted_rr_intervals");
-            let fs = self.filtered_ekg().fs;
-
-            self.adjusted_cycles()
-                .iter()
-                .map(|cycle| cycle.position)
-                .map_windows(move |[a, b]| (*b - *a) as f64 / fs)
-                .collect()
-        })
-    }
-
-    fn avg_rr(&self) -> f64 {
-        average(self.rr_intervals().iter().copied())
-    }
-
-    fn adjusted_avg_rr(&self) -> f64 {
-        average(self.adjusted_rr_intervals().iter().copied())
-    }
+    query!(filtered_ekg: Ekg);
+    query!(fft: Vec<f32>);
+    query!(hrs: HrData);
+    query!(rr_intervals: Vec<f64>);
+    query!(adjusted_rr_intervals: Vec<f64>);
+    query!(cycles: Vec<Cycle>);
+    query!(adjusted_cycles: Vec<Cycle>);
+    query!(average_cycle: Cycle);
+    query!(majority_cycle: Cycle);
 
     fn avg_hr(&self) -> f64 {
-        60.0 / self.adjusted_avg_rr()
-    }
-
-    fn cycles(&self) -> Ref<'_, Vec<Cycle>> {
-        self.processed.cycles.get(|| {
-            log::debug!("Data::cycles");
-            let filtered = self.filtered_ekg();
-            let hrs = self.hrs();
-
-            let fs = (filtered.fs as f32).sps();
-            let avg_rr = self.avg_rr() as f32;
-
-            let pre = fs.s_to_samples(avg_rr / 3.0);
-            let post = fs.s_to_samples(avg_rr * 2.0 / 3.0);
-
-            hrs.detections
-                .iter()
-                .copied()
-                .filter_map(|idx| {
-                    filtered.samples.get(idx - pre..idx + post).map(|_| Cycle {
-                        samples: filtered.samples.clone(),
-                        start: idx - pre,
-                        position: idx,
-                        end: idx + post,
-                    })
-                })
-                .collect::<Vec<_>>()
-        })
-    }
-
-    fn adjusted_cycles(&self) -> Ref<'_, Vec<Cycle>> {
-        self.processed.adjusted_cycles.get(|| {
-            log::debug!("Data::adjusted_cycles");
-            let filtered = self.filtered_ekg();
-
-            let fs = (filtered.fs as f32).sps();
-            let avg_rr = self.avg_rr() as f32;
-
-            let pre = fs.s_to_samples(avg_rr / 3.0);
-            let post = fs.s_to_samples(avg_rr * 2.0 / 3.0);
-
-            let cycles = self.cycles();
-
-            let cycle_idxs = cycles.iter().map(|cycle| cycle.position);
-            let all_cycles = cycles.iter().map(|cycle| cycle.as_slice());
-
-            let all_average = average_cycle(all_cycles.clone());
-
-            let mut max = f32::NEG_INFINITY;
-            let max_pos = all_average
-                .iter()
-                .enumerate()
-                .filter_map(|(idx, y)| {
-                    if *y > max {
-                        max = *y;
-                        Some(idx)
-                    } else {
-                        None
-                    }
-                })
-                .last()
-                .unwrap();
-
-            // For QRS adjustment, we're using the 50-50 ms window around the peak of the QRS
-            let avg_qrs_width = fs.ms_to_samples(25.0);
-            let avg_qrs = &all_average[max_pos - avg_qrs_width..][..2 * avg_qrs_width];
-
-            let avg_max_offset = max_pos as isize - pre as isize;
-
-            let adjusted_idxs = cycle_idxs.map(|idx| {
-                let idx = idx as isize;
-                let offset_to_avg = adjust_time(
-                    &filtered.samples[(idx + avg_max_offset) as usize - avg_qrs.len()..]
-                        [..2 * avg_qrs.len()],
-                    &avg_qrs,
-                );
-
-                (idx + avg_max_offset + offset_to_avg) as usize
-            });
-
-            adjusted_idxs
-                .map(|idx| Cycle {
-                    samples: filtered.samples.clone(),
-                    start: idx - pre,
-                    position: idx,
-                    end: idx + post,
-                })
-                .collect::<Vec<_>>()
-        })
-    }
-
-    fn average_cycle(&self) -> Ref<'_, Cycle> {
-        self.processed.average_cycle.get(|| {
-            log::debug!("Data::average_cycle");
-            let adjusted_cycles = self.adjusted_cycles();
-
-            let avg = average_cycle(adjusted_cycles.iter().map(|cycle| cycle.as_slice()));
-
-            let mut max = f32::NEG_INFINITY;
-            let max_pos = avg
-                .iter()
-                .enumerate()
-                .filter_map(|(idx, y)| {
-                    max = max.max(*y);
-                    if *y == max {
-                        Some(idx)
-                    } else {
-                        None
-                    }
-                })
-                .last()
-                .unwrap();
-
-            Cycle {
-                position: max_pos,
-                start: 0,
-                end: avg.len(),
-                samples: Arc::from(avg),
-            }
-        })
-    }
-
-    fn majority_cycle(&self) -> Ref<'_, Cycle> {
-        self.processed.majority_cycle.get(|| {
-            log::debug!("Data::majority_cycle");
-            let adjusted_cycles = self.adjusted_cycles();
-
-            let avg = self.average_cycle();
-
-            let autocorr = cross_correlate(avg.as_slice(), avg.as_slice());
-
-            let similarities = adjusted_cycles
-                .iter()
-                .map(|cycle| cross_correlate(cycle.as_slice(), avg.as_slice()))
-                .map(|xcorr| similarity(xcorr, autocorr))
-                .collect::<Vec<_>>();
-
-            const SIMILARITY_THRESHOLD: f32 = 0.8;
-
-            let similar_cycles = adjusted_cycles.iter().zip(similarities.iter()).filter_map(
-                |(cycle, similarity)| {
-                    (*similarity > SIMILARITY_THRESHOLD).then_some(cycle.as_slice())
-                },
-            );
-
-            let majority_cycle = average_cycle(similar_cycles.clone());
-
-            log::debug!(
-                "Similarity with average: {}, based on {}/{} cycles",
-                similarity(
-                    cross_correlate(majority_cycle.as_slice(), avg.as_slice()),
-                    autocorr
-                ),
-                similar_cycles.count(),
-                adjusted_cycles.len(),
-            );
-
-            let mut max = f32::NEG_INFINITY;
-            let max_pos = majority_cycle
-                .iter()
-                .enumerate()
-                .filter_map(|(idx, y)| {
-                    max = max.max(*y);
-                    if *y == max {
-                        Some(idx)
-                    } else {
-                        None
-                    }
-                })
-                .last()
-                .unwrap();
-
-            Cycle {
-                position: max_pos,
-                start: 0,
-                end: majority_cycle.len(),
-                samples: Arc::from(majority_cycle),
-            }
-        })
+        self.processed.avg_hr(&self.context)
     }
 
     fn clear_processed(&mut self) {
@@ -518,43 +157,30 @@ impl Default for EkgTuner {
     }
 }
 
-fn apply_filter<F: Filter>(signal: &mut Vec<f32>, mut filter: F) {
-    *signal = signal
-        .iter()
-        .copied()
-        .filter_map(|sample| filter.update(sample))
-        .collect::<Vec<_>>();
-}
-
-fn apply_zero_phase_filter<F: Filter + Clone>(signal: &mut Vec<f32>, filter: F) {
-    apply_filter(signal, filter.clone());
-    signal.reverse();
-
-    apply_filter(signal, filter);
-    signal.reverse();
-}
-
 fn filter_menu(ui: &mut Ui, data: &mut Data) {
     egui::Grid::new("filter_opts").show(ui, |ui| {
         if ui
-            .checkbox(&mut data.config.high_pass, "High-pass filter")
+            .checkbox(&mut data.context.config.high_pass, "High-pass filter")
             .changed()
         {
-            data.clear_processed();
-        }
-
-        if ui.checkbox(&mut data.config.pli, "PLI filter").changed() {
             data.clear_processed();
         }
 
         if ui
-            .checkbox(&mut data.config.low_pass, "Low-pass filter")
+            .checkbox(&mut data.context.config.pli, "PLI filter")
             .changed()
         {
             data.clear_processed();
         }
 
-        ui.checkbox(&mut data.config.hr_debug, "HR debug");
+        if ui
+            .checkbox(&mut data.context.config.low_pass, "Low-pass filter")
+            .changed()
+        {
+            data.clear_processed();
+        }
+
+        ui.checkbox(&mut data.context.config.hr_debug, "HR debug");
     });
 }
 
@@ -695,7 +321,7 @@ impl EkgTuner {
 
                 signals.push(ekg.iter().map(|y| *y as f64), EKG_COLOR, "EKG");
 
-                if data.config.hr_debug {
+                if data.context.config.hr_debug {
                     signals.push(
                         threshold.iter().map(|y| y.total().unwrap_or(y.r) as f64),
                         Color32::YELLOW,
@@ -766,12 +392,14 @@ impl EkgTuner {
         let fft = {
             let fft = data.fft();
 
+            let x_scale = data.context.raw_ekg.fs / fft.len() as f64;
+
             Line::new(
                 fft.iter()
-                    .skip(1 - data.config.high_pass as usize) // skip DC if high-pass is off
+                    .skip(1 - data.context.config.high_pass as usize) // skip DC if high-pass is off
                     .take(fft.len() / 2)
                     .enumerate()
-                    .map(|(x, y)| [x as f64 * data.raw_ekg.fs / fft.len() as f64, *y as f64])
+                    .map(|(x, y)| [x as f64 * x_scale, *y as f64])
                     .collect::<PlotPoints>(),
             )
             .color(EKG_COLOR)
@@ -834,7 +462,7 @@ impl EkgTuner {
             lines.push(
                 Line::new(
                     cycle
-                        .samples
+                        .as_slice()
                         .iter()
                         .enumerate()
                         .map(|(x, y)| [(x as f64 - cycle.position as f64) / fs, *y as f64])
