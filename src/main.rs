@@ -418,6 +418,7 @@ fn detect_beats(ekg: &[f32], fs: f32) -> (Vec<usize>, Vec<Thresholds>, Vec<f32>,
 enum Tabs {
     EKG,
     FFT,
+    HRV,
     Cycle,
 }
 
@@ -720,6 +721,41 @@ impl EkgTuner {
             .context_menu(|ui| filter_menu(ui, data));
     }
 
+    fn hrv_tab(ui: &mut Ui, data: &mut Data) {
+        let hr_data = data.hrs();
+        let fs = data.filtered_ekg().fs;
+
+        // Poincare plot to visualize heart-rate variability
+        let rrs = hr_data
+            .detections
+            .iter()
+            .copied()
+            .map_windows(|[x, y]| ((*y - *x) as f64 / fs) * 1000.0);
+
+        let (min_rr, max_rr) = rrs
+            .clone()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), y| {
+                (min.min(y), max.max(y))
+            });
+
+        egui_plot::Plot::new("hrv")
+            .legend(Legend::default())
+            .show_axes(true)
+            .show_grid(true)
+            .include_x(min_rr - 100.0)
+            .include_x(max_rr + 100.0)
+            .include_y(min_rr - 100.0)
+            .include_y(max_rr + 100.0)
+            .data_aspect(1.0)
+            .allow_scroll(false)
+            .show(ui, |plot_ui| {
+                plot_ui.points(
+                    Points::new(rrs.map_windows(|[x, y]| [*x, *y]).collect::<PlotPoints>())
+                        .color(Color32::from_rgb(100, 150, 250)),
+                );
+            });
+    }
+
     fn cycle_tab(ui: &mut Ui, data: &mut Data) {
         let mut lines = vec![];
 
@@ -774,12 +810,14 @@ impl eframe::App for EkgTuner {
                 ui.horizontal(|ui| {
                     ui.selectable_value(&mut self.active_tab, Tabs::EKG, "EKG");
                     ui.selectable_value(&mut self.active_tab, Tabs::FFT, "FFT");
+                    ui.selectable_value(&mut self.active_tab, Tabs::HRV, "HRV");
                     ui.selectable_value(&mut self.active_tab, Tabs::Cycle, "Cycle info");
                 });
 
                 match self.active_tab {
                     Tabs::EKG => Self::ekg_tab(ui, data),
                     Tabs::FFT => Self::fft_tab(ui, data),
+                    Tabs::HRV => Self::hrv_tab(ui, data),
                     Tabs::Cycle => Self::cycle_tab(ui, data),
                 }
             }
