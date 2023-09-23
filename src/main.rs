@@ -722,14 +722,13 @@ impl EkgTuner {
     }
 
     fn hrv_tab(ui: &mut Ui, data: &mut Data) {
-        let hr_data = data.hrs();
         let fs = data.filtered_ekg().fs;
+        let hr_data = data.adjusted_cycles();
 
         // Poincare plot to visualize heart-rate variability
         let rrs = hr_data
-            .detections
             .iter()
-            .copied()
+            .map(|cycle| cycle.position)
             .map_windows(|[x, y]| ((*y - *x) as f64 / fs) * 1000.0);
 
         let (min_rr, max_rr) = rrs
