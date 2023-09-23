@@ -22,7 +22,7 @@ use signal_processing::{
 };
 
 use crate::{
-    analysis::{adjust_time, average_cycle, cross_correlate},
+    analysis::{adjust_time, average, average_cycle, cross_correlate, similarity},
     data_cell::DataCell,
 };
 
@@ -120,6 +120,8 @@ struct ProcessedSignal {
     adjusted_cycles: DataCell<Vec<Cycle>>,
     average_cycle: DataCell<Cycle>,
     majority_cycle: DataCell<Cycle>,
+    rr_intervals: DataCell<Vec<f64>>,
+    adjusted_rr_intervals: DataCell<Vec<f64>>,
 }
 
 impl ProcessedSignal {
@@ -135,6 +137,8 @@ impl ProcessedSignal {
         self.adjusted_cycles.clear();
         self.average_cycle.clear();
         self.majority_cycle.clear();
+        self.rr_intervals.clear();
+        self.adjusted_rr_intervals.clear();
     }
 }
 
@@ -173,6 +177,7 @@ impl Data {
 
     fn filtered_ekg(&self) -> Ref<'_, Ekg> {
         self.processed.filtered_ekg.get(|| {
+            log::debug!("Data::filtered_ekg");
             let mut samples = self.raw_ekg.samples.to_vec();
 
             if self.filter_config.pli {
@@ -216,6 +221,7 @@ impl Data {
 
     fn fft(&self) -> Ref<'_, Vec<f32>> {
         self.processed.fft.get(|| {
+            log::debug!("Data::fft");
             let mut samples = self
                 .filtered_ekg()
                 .samples
@@ -235,6 +241,7 @@ impl Data {
 
     fn hrs(&self) -> Ref<'_, HrData> {
         self.processed.hrs.get(|| {
+            log::debug!("Data::hrs");
             let filtered = self.filtered_ekg();
 
             let ekg: &[f32] = &filtered.samples;
@@ -267,55 +274,52 @@ impl Data {
         })
     }
 
-    fn rr_intervals(&self) -> impl Iterator<Item = f64> {
-        let fs = self.filtered_ekg().fs;
+    fn rr_intervals(&self) -> Ref<'_, Vec<f64>> {
+        self.processed.rr_intervals.get(|| {
+            log::debug!("Data::rr_intervals");
+            let fs = self.filtered_ekg().fs;
 
-        self.hrs()
-            .detections
-            .clone()
-            .into_iter()
-            .map_windows(move |[a, b]| (*b - *a) as f64 / fs)
+            self.hrs()
+                .detections
+                .iter()
+                .map_windows(move |[a, b]| (*b - *a) as f64 / fs)
+                .collect()
+        })
     }
 
-    fn adjusted_rr_intervals(&self) -> impl Iterator<Item = f64> {
-        let fs = self.filtered_ekg().fs;
+    fn adjusted_rr_intervals(&self) -> Ref<'_, Vec<f64>> {
+        self.processed.adjusted_rr_intervals.get(|| {
+            log::debug!("Data::adjusted_rr_intervals");
+            let fs = self.filtered_ekg().fs;
 
-        self.adjusted_cycles()
-            .clone()
-            .into_iter()
-            .map(|cycle| cycle.position)
-            .map_windows(move |[a, b]| (*b - *a) as f64 / fs)
+            self.adjusted_cycles()
+                .iter()
+                .map(|cycle| cycle.position)
+                .map_windows(move |[a, b]| (*b - *a) as f64 / fs)
+                .collect()
+        })
     }
 
-    fn avg_rr(&self) -> f32 {
-        let (count, sum) = self
-            .rr_intervals()
-            .map(|rr| rr as f32)
-            .fold((0, 0.0), |(count, sum), hr| (count + 1, sum + hr));
-
-        sum / count as f32
+    fn avg_rr(&self) -> f64 {
+        average(self.rr_intervals().iter().copied())
     }
 
-    fn adjusted_avg_rr(&self) -> f32 {
-        let (count, sum) = self
-            .adjusted_rr_intervals()
-            .map(|rr| rr as f32)
-            .fold((0, 0.0), |(count, sum), hr| (count + 1, sum + hr));
-
-        sum / count as f32
+    fn adjusted_avg_rr(&self) -> f64 {
+        average(self.adjusted_rr_intervals().iter().copied())
     }
 
-    fn avg_hr(&self) -> f32 {
+    fn avg_hr(&self) -> f64 {
         60.0 / self.adjusted_avg_rr()
     }
 
     fn cycles(&self) -> Ref<'_, Vec<Cycle>> {
         self.processed.cycles.get(|| {
+            log::debug!("Data::cycles");
             let filtered = self.filtered_ekg();
             let hrs = self.hrs();
 
             let fs = (filtered.fs as f32).sps();
-            let avg_rr = self.avg_rr();
+            let avg_rr = self.avg_rr() as f32;
 
             let pre = fs.s_to_samples(avg_rr / 3.0);
             let post = fs.s_to_samples(avg_rr * 2.0 / 3.0);
@@ -337,10 +341,11 @@ impl Data {
 
     fn adjusted_cycles(&self) -> Ref<'_, Vec<Cycle>> {
         self.processed.adjusted_cycles.get(|| {
+            log::debug!("Data::adjusted_cycles");
             let filtered = self.filtered_ekg();
 
             let fs = (filtered.fs as f32).sps();
-            let avg_rr = self.avg_rr();
+            let avg_rr = self.avg_rr() as f32;
 
             let pre = fs.s_to_samples(avg_rr / 3.0);
             let post = fs.s_to_samples(avg_rr * 2.0 / 3.0);
@@ -397,6 +402,7 @@ impl Data {
 
     fn average_cycle(&self) -> Ref<'_, Cycle> {
         self.processed.average_cycle.get(|| {
+            log::debug!("Data::average_cycle");
             let adjusted_cycles = self.adjusted_cycles();
 
             let avg = average_cycle(adjusted_cycles.iter().map(|cycle| cycle.as_slice()));
@@ -427,6 +433,7 @@ impl Data {
 
     fn majority_cycle(&self) -> Ref<'_, Cycle> {
         self.processed.majority_cycle.get(|| {
+            log::debug!("Data::majority_cycle");
             let adjusted_cycles = self.adjusted_cycles();
 
             let avg = self.average_cycle();
@@ -486,10 +493,6 @@ impl Data {
     fn clear_processed(&mut self) {
         self.processed.clear();
     }
-}
-
-fn similarity(corr: f32, max_corr: f32) -> f32 {
-    1.0 - (1.0 - corr / max_corr).abs()
 }
 
 #[derive(Debug, PartialEq)]

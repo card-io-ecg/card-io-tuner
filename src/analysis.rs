@@ -44,3 +44,13 @@ pub fn adjust_time(cycle: &[f32], average: &[f32]) -> isize {
     let width = average.len() as isize;
     offset - width
 }
+
+pub fn average(iter: impl Iterator<Item = f64>) -> f64 {
+    let (count, sum) = iter.fold((0, 0.0), |(count, sum), y| (count + 1, sum + y));
+
+    sum / count as f64
+}
+
+pub fn similarity(corr: f32, max_corr: f32) -> f32 {
+    1.0 - (1.0 - corr / max_corr).abs()
+}
