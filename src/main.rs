@@ -99,20 +99,24 @@ impl Data {
         log::debug!("Loading {}", path.display());
         std::fs::read(&path).ok().and_then(|bytes| {
             let ekg = Ekg::load(bytes).ok()?;
-            Some(Data {
-                path,
-                processed: ProcessedSignal::new(),
-                context: Context {
-                    raw_ekg: ekg,
-                    config: Config {
-                        high_pass: true,
-                        pli: true,
-                        low_pass: true,
-                        hr_debug: false,
-                    },
-                },
-            })
+            Some(Self::new(path, ekg))
         })
+    }
+
+    fn new(path: PathBuf, ekg: Ekg) -> Self {
+        Self {
+            path,
+            processed: ProcessedSignal::new(),
+            context: Context {
+                raw_ekg: ekg,
+                config: Config {
+                    high_pass: true,
+                    pli: true,
+                    low_pass: true,
+                    hr_debug: false,
+                },
+            },
+        }
     }
 
     query!(filtered_ekg: Ekg);
