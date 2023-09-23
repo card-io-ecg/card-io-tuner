@@ -42,6 +42,8 @@ fn main() -> Result<(), eframe::Error> {
     )
 }
 
+const EKG_COLOR: Color32 = Color32::from_rgb(100, 150, 250);
+
 #[derive(Clone)]
 struct Ekg {
     samples: Arc<[f32]>,
@@ -565,7 +567,7 @@ impl EkgTuner {
                             .map(|(x, y)| [x as f64 / ekg_data.fs, (*y - offset) as f64])
                             .collect::<PlotPoints>(),
                     )
-                    .color(Color32::from_rgb(100, 150, 250))
+                    .color(EKG_COLOR)
                     .name("EKG"),
                 );
 
@@ -703,7 +705,7 @@ impl EkgTuner {
                     .map(|(x, y)| [x as f64 * data.raw_ekg.fs / fft.len() as f64, *y as f64])
                     .collect::<PlotPoints>(),
             )
-            .color(Color32::from_rgb(100, 150, 250))
+            .color(EKG_COLOR)
             .name("FFT")
         };
 
@@ -750,7 +752,7 @@ impl EkgTuner {
             .show(ui, |plot_ui| {
                 plot_ui.points(
                     Points::new(rrs.map_windows(|[x, y]| [*x, *y]).collect::<PlotPoints>())
-                        .color(Color32::from_rgb(100, 150, 250)),
+                        .color(EKG_COLOR),
                 );
             });
     }
@@ -770,7 +772,7 @@ impl EkgTuner {
                     .map(|(x, y)| [(x as f64 - cycle.position as f64) / fs, *y as f64])
                     .collect::<PlotPoints>(),
             )
-            .color(Color32::from_rgb(100, 150, 250))
+            .color(EKG_COLOR)
             .name("Majority cycle"),
         );
 
