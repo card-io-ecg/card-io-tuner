@@ -142,18 +142,18 @@ impl ProcessedSignal {
     }
 }
 
+struct Config {
+    high_pass: bool,
+    pli: bool,
+    low_pass: bool,
+    hr_debug: bool,
+}
+
 struct Data {
     path: PathBuf,
     raw_ekg: Ekg,
     processed: ProcessedSignal,
-    filter_config: FilterConfig,
-    hr_debug: bool,
-}
-
-struct FilterConfig {
-    high_pass: bool,
-    pli: bool,
-    low_pass: bool,
+    config: Config,
 }
 
 impl Data {
@@ -165,12 +165,12 @@ impl Data {
                 path,
                 raw_ekg: ekg,
                 processed: ProcessedSignal::new(),
-                filter_config: FilterConfig {
+                config: Config {
                     high_pass: true,
                     pli: true,
                     low_pass: true,
+                    hr_debug: false,
                 },
-                hr_debug: false,
             })
         })
     }
@@ -180,7 +180,7 @@ impl Data {
             log::debug!("Data::filtered_ekg");
             let mut samples = self.raw_ekg.samples.to_vec();
 
-            if self.filter_config.pli {
+            if self.config.pli {
                 apply_filter(
                     &mut samples,
                     PowerLineFilter::<AdaptationBlocking<Sum<1200>, 4, 19>, 1>::new(
@@ -190,7 +190,7 @@ impl Data {
                 );
             }
 
-            if self.filter_config.high_pass {
+            if self.config.high_pass {
                 #[rustfmt::skip]
                 let high_pass = designfilt!(
                     "highpassiir",
@@ -201,7 +201,7 @@ impl Data {
                 apply_zero_phase_filter(&mut samples, high_pass);
             }
 
-            if self.filter_config.low_pass {
+            if self.config.low_pass {
                 #[rustfmt::skip]
                 let low_pass = designfilt!(
                     "lowpassiir",
@@ -537,27 +537,24 @@ fn apply_zero_phase_filter<F: Filter + Clone>(signal: &mut Vec<f32>, filter: F) 
 fn filter_menu(ui: &mut Ui, data: &mut Data) {
     egui::Grid::new("filter_opts").show(ui, |ui| {
         if ui
-            .checkbox(&mut data.filter_config.high_pass, "High-pass filter")
+            .checkbox(&mut data.config.high_pass, "High-pass filter")
             .changed()
         {
+            data.clear_processed();
+        }
+
+        if ui.checkbox(&mut data.config.pli, "PLI filter").changed() {
             data.clear_processed();
         }
 
         if ui
-            .checkbox(&mut data.filter_config.pli, "PLI filter")
+            .checkbox(&mut data.config.low_pass, "Low-pass filter")
             .changed()
         {
             data.clear_processed();
         }
 
-        if ui
-            .checkbox(&mut data.filter_config.low_pass, "Low-pass filter")
-            .changed()
-        {
-            data.clear_processed();
-        }
-
-        ui.checkbox(&mut data.hr_debug, "HR debug");
+        ui.checkbox(&mut data.config.hr_debug, "HR debug");
     });
 }
 
@@ -698,7 +695,7 @@ impl EkgTuner {
 
                 signals.push(ekg.iter().map(|y| *y as f64), EKG_COLOR, "EKG");
 
-                if data.hr_debug {
+                if data.config.hr_debug {
                     signals.push(
                         threshold.iter().map(|y| y.total().unwrap_or(y.r) as f64),
                         Color32::YELLOW,
@@ -771,7 +768,7 @@ impl EkgTuner {
 
             Line::new(
                 fft.iter()
-                    .skip(1 - data.filter_config.high_pass as usize) // skip DC if high-pass is off
+                    .skip(1 - data.config.high_pass as usize) // skip DC if high-pass is off
                     .take(fft.len() / 2)
                     .enumerate()
                     .map(|(x, y)| [x as f64 * data.raw_ekg.fs / fft.len() as f64, *y as f64])
