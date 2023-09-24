@@ -14,28 +14,13 @@ use signal_processing::{
 
 use crate::{
     analysis::{adjust_time, average, average_cycle, cross_correlate, similarity},
-    data_cell::DataCell,
-    Ekg,
+    data::{cell::DataCell, Cycle, Ekg},
 };
 
 pub struct HrData {
     pub detections: Vec<usize>,
     pub thresholds: Vec<Thresholds>,
     pub complex_lead: Vec<f32>,
-}
-
-#[derive(Clone)]
-pub struct Cycle {
-    samples: Arc<[f32]>,
-    pub start: usize,
-    pub position: usize,
-    pub end: usize,
-}
-
-impl Cycle {
-    pub fn as_slice(&self) -> &[f32] {
-        &self.samples[self.start..self.end]
-    }
 }
 
 pub struct Config {

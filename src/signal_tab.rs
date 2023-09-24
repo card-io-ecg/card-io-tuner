@@ -6,7 +6,7 @@ use eframe::{
 };
 use egui_plot::{AxisBools, GridInput, GridMark, Legend, Line, MarkerShape, PlotPoints, Points};
 
-use crate::{processing::Cycle, Data};
+use crate::data::{Cycle, Data};
 
 const EKG_COLOR: Color32 = Color32::from_rgb(100, 150, 250);
 
@@ -17,6 +17,7 @@ struct SignalCharts<'a> {
     fs: f64,
     samples: Range<usize>,
 }
+
 impl SignalCharts<'_> {
     fn to_point(&self, (x, y): (usize, f64)) -> [f64; 2] {
         [x as f64 / self.fs, y - self.offset]
