@@ -1,7 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![feature(iter_map_windows)]
 
-use std::{cell::Ref, env, ops::Range, path::PathBuf, sync::Arc};
+use std::{
+    cell::{Ref, RefCell},
+    env,
+    ops::Range,
+    path::PathBuf,
+    sync::Arc,
+};
 
 use eframe::{
     egui::{self, PointerButton, Ui},
@@ -10,15 +16,20 @@ use eframe::{
 use egui_plot::{AxisBools, GridInput, GridMark, Legend, Line, MarkerShape, PlotPoints, Points};
 use signal_processing::compressing_buffer::EkgFormat;
 
-use crate::processing::{Config, Context, Cycle, HrData, ProcessedSignal};
+use crate::{
+    app_config::AppConfig,
+    processing::{Config, Context, Cycle, HrData, ProcessedSignal},
+};
 
 mod analysis;
+mod app_config;
 mod data_cell;
 mod processing;
 
 fn main() -> Result<(), eframe::Error> {
     env::set_var("RUST_LOG", "card_io_tuner=debug");
     env_logger::init();
+
     eframe::run_native(
         "EKG visualizer and filter tuner",
         eframe::NativeOptions {
@@ -150,6 +161,7 @@ enum Tabs {
 struct EkgTuner {
     data: Option<Data>,
     active_tab: Tabs,
+    config: RefCell<AppConfig>,
 }
 
 impl Default for EkgTuner {
@@ -157,6 +169,7 @@ impl Default for EkgTuner {
         Self {
             data: None,
             active_tab: Tabs::EKG,
+            config: RefCell::new(AppConfig::load()),
         }
     }
 }
