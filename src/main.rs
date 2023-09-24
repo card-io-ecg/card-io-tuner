@@ -5,11 +5,12 @@ use std::{cell::RefCell, env, path::PathBuf};
 
 use eframe::egui;
 
-use crate::{app_config::AppConfig, data::Data, signal_tab::SignalTab};
+use crate::{app_config::AppConfig, data::Data, remote::RemoteTab, signal_tab::SignalTab};
 
 mod analysis;
 mod app_config;
 mod data;
+mod remote;
 mod signal_tab;
 
 fn main() -> Result<(), eframe::Error> {
@@ -40,8 +41,12 @@ struct EkgTuner {
 
 impl Default for EkgTuner {
     fn default() -> Self {
+        let mut tabs = Vec::new();
+
+        tabs.push(RemoteTab::new_boxed());
+
         Self {
-            tabs: Vec::new(),
+            tabs,
             selected_tab: 0,
             config: RefCell::new(AppConfig::load()),
         }
