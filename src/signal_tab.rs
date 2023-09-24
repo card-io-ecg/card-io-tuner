@@ -366,13 +366,17 @@ impl SignalTab {
             });
     }
 
-    pub(crate) fn display(&mut self, ui: &mut Ui) {
+    pub(crate) fn display(&mut self, ui: &mut Ui) -> bool {
+        let mut close = false;
         ui.label(self.data.path.display().to_string());
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.active_tab, Tab::EKG, "EKG");
             ui.selectable_value(&mut self.active_tab, Tab::FFT, "FFT");
             ui.selectable_value(&mut self.active_tab, Tab::HRV, "HRV");
             ui.selectable_value(&mut self.active_tab, Tab::Cycle, "Cycle info");
+            if ui.button("Close").clicked() {
+                close = true;
+            }
         });
 
         match self.active_tab {
@@ -381,5 +385,7 @@ impl SignalTab {
             Tab::HRV => Self::hrv_tab(ui, &mut self.data),
             Tab::Cycle => Self::cycle_tab(ui, &mut self.data),
         }
+
+        close
     }
 }

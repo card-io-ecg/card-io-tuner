@@ -179,7 +179,9 @@ impl eframe::App for EkgTuner {
             });
 
             if let Some(tab) = self.signal_tab.as_mut() {
-                tab.display(ui);
+                if tab.display(ui) {
+                    self.signal_tab = None;
+                }
             }
         });
 
