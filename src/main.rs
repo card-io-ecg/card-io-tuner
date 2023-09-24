@@ -33,6 +33,7 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "EKG visualizer and filter tuner",
         eframe::NativeOptions {
+            drag_and_drop_support: true,
             initial_window_size: Some(egui::vec2(640.0, 480.0)),
             ..Default::default()
         },
@@ -272,6 +273,12 @@ impl SignalCharts<'_> {
 }
 
 impl EkgTuner {
+    fn load(&mut self, path: PathBuf) {
+        if let Some(data) = Data::load(path) {
+            self.data = Some(data);
+        }
+    }
+
     fn ekg_tab(ui: &mut Ui, data: &mut Data) {
         Self::plot_signal(ui, data);
     }
@@ -515,8 +522,8 @@ impl eframe::App for EkgTuner {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if ui.button("Open file").clicked() {
-                    if let Some(path) = rfd::FileDialog::new().pick_file() {
-                        self.data = Data::load(path);
+                    if let Some(file) = rfd::FileDialog::new().pick_file() {
+                        self.load(file);
                     }
                 }
 
@@ -537,6 +544,14 @@ impl eframe::App for EkgTuner {
                     SignalTabs::FFT => Self::fft_tab(ui, data),
                     SignalTabs::HRV => Self::hrv_tab(ui, data),
                     SignalTabs::Cycle => Self::cycle_tab(ui, data),
+                }
+            }
+        });
+
+        ctx.input(|i| {
+            if !i.raw.dropped_files.is_empty() {
+                if let Some(file) = i.raw.dropped_files[0].path.clone() {
+                    self.load(file);
                 }
             }
         });
