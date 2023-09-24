@@ -146,14 +146,16 @@ impl Data {
 }
 
 struct EkgTuner {
-    signal_tab: Option<SignalTab>,
+    tabs: Vec<SignalTab>,
+    selected_tab: usize,
     config: RefCell<AppConfig>,
 }
 
 impl Default for EkgTuner {
     fn default() -> Self {
         Self {
-            signal_tab: None,
+            tabs: Vec::new(),
+            selected_tab: 0,
             config: RefCell::new(AppConfig::load()),
         }
     }
@@ -162,7 +164,8 @@ impl Default for EkgTuner {
 impl EkgTuner {
     fn load(&mut self, path: PathBuf) {
         if let Some(data) = Data::load(path) {
-            self.signal_tab = Some(SignalTab::new(data));
+            self.tabs.push(SignalTab::new(data));
+            self.selected_tab = self.tabs.len() - 1;
         }
     }
 }
@@ -176,12 +179,21 @@ impl eframe::App for EkgTuner {
                         self.load(file);
                     }
                 }
+
+                for (i, _tab) in self.tabs.iter().enumerate() {
+                    ui.selectable_value(&mut self.selected_tab, i, format!("{i}"));
+                }
             });
 
-            if let Some(tab) = self.signal_tab.as_mut() {
-                if tab.display(ui) {
-                    self.signal_tab = None;
-                }
+            let close_current = if let Some(tab) = self.tabs.get_mut(self.selected_tab) {
+                tab.display(ui)
+            } else {
+                false
+            };
+
+            if close_current {
+                self.tabs.remove(self.selected_tab);
+                self.selected_tab = self.selected_tab.min(self.tabs.len().saturating_sub(1));
             }
         });
 

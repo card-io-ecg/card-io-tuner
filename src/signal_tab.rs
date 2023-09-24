@@ -368,15 +368,18 @@ impl SignalTab {
 
     pub(crate) fn display(&mut self, ui: &mut Ui) -> bool {
         let mut close = false;
-        ui.label(self.data.path.display().to_string());
+        ui.horizontal(|ui| {
+            if ui.button("Close").clicked() {
+                close = true;
+            }
+            ui.label(self.data.path.display().to_string());
+        });
+
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.active_tab, Tab::EKG, "EKG");
             ui.selectable_value(&mut self.active_tab, Tab::FFT, "FFT");
             ui.selectable_value(&mut self.active_tab, Tab::HRV, "HRV");
             ui.selectable_value(&mut self.active_tab, Tab::Cycle, "Cycle info");
-            if ui.button("Close").clicked() {
-                close = true;
-            }
         });
 
         match self.active_tab {
