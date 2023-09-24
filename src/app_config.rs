@@ -5,13 +5,18 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AppConfig {
+    #[serde(default)]
     pub backend_url: String,
+
+    #[serde(default)]
+    pub auth_token: String,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            backend_url: String::new(),
+            backend_url: Default::default(),
+            auth_token: Default::default(),
         }
     }
 }
