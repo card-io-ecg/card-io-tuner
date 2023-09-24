@@ -151,7 +151,7 @@ impl Data {
 
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-enum Tabs {
+enum SignalTabs {
     EKG,
     FFT,
     HRV,
@@ -160,7 +160,7 @@ enum Tabs {
 
 struct EkgTuner {
     data: Option<Data>,
-    active_tab: Tabs,
+    active_tab: SignalTabs,
     config: RefCell<AppConfig>,
 }
 
@@ -168,7 +168,7 @@ impl Default for EkgTuner {
     fn default() -> Self {
         Self {
             data: None,
-            active_tab: Tabs::EKG,
+            active_tab: SignalTabs::EKG,
             config: RefCell::new(AppConfig::load()),
         }
     }
@@ -526,17 +526,17 @@ impl eframe::App for EkgTuner {
             });
             if let Some(data) = self.data.as_mut() {
                 ui.horizontal(|ui| {
-                    ui.selectable_value(&mut self.active_tab, Tabs::EKG, "EKG");
-                    ui.selectable_value(&mut self.active_tab, Tabs::FFT, "FFT");
-                    ui.selectable_value(&mut self.active_tab, Tabs::HRV, "HRV");
-                    ui.selectable_value(&mut self.active_tab, Tabs::Cycle, "Cycle info");
+                    ui.selectable_value(&mut self.active_tab, SignalTabs::EKG, "EKG");
+                    ui.selectable_value(&mut self.active_tab, SignalTabs::FFT, "FFT");
+                    ui.selectable_value(&mut self.active_tab, SignalTabs::HRV, "HRV");
+                    ui.selectable_value(&mut self.active_tab, SignalTabs::Cycle, "Cycle info");
                 });
 
                 match self.active_tab {
-                    Tabs::EKG => Self::ekg_tab(ui, data),
-                    Tabs::FFT => Self::fft_tab(ui, data),
-                    Tabs::HRV => Self::hrv_tab(ui, data),
-                    Tabs::Cycle => Self::cycle_tab(ui, data),
+                    SignalTabs::EKG => Self::ekg_tab(ui, data),
+                    SignalTabs::FFT => Self::fft_tab(ui, data),
+                    SignalTabs::HRV => Self::hrv_tab(ui, data),
+                    SignalTabs::Cycle => Self::cycle_tab(ui, data),
                 }
             }
         });
