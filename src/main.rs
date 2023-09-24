@@ -27,8 +27,13 @@ fn main() -> Result<(), eframe::Error> {
     )
 }
 
+trait AppTab {
+    fn label(&self) -> &str;
+    fn display(&mut self, ui: &mut egui::Ui) -> bool;
+}
+
 struct EkgTuner {
-    tabs: Vec<SignalTab>,
+    tabs: Vec<Box<dyn AppTab>>,
     selected_tab: usize,
     config: RefCell<AppConfig>,
 }
@@ -45,8 +50,11 @@ impl Default for EkgTuner {
 
 impl EkgTuner {
     fn load(&mut self, path: PathBuf) {
-        if let Some(data) = Data::load(path) {
-            self.tabs.push(SignalTab::new(data));
+        if let Some(data) = Data::load(&path) {
+            self.tabs.push(SignalTab::new_boxed(
+                path.file_name().unwrap().to_string_lossy().to_string(),
+                data,
+            ));
             self.selected_tab = self.tabs.len() - 1;
         }
     }
@@ -62,8 +70,8 @@ impl eframe::App for EkgTuner {
                     }
                 }
 
-                for (i, _tab) in self.tabs.iter().enumerate() {
-                    ui.selectable_value(&mut self.selected_tab, i, format!("{i}"));
+                for (i, tab) in self.tabs.iter().enumerate() {
+                    ui.selectable_value(&mut self.selected_tab, i, tab.label());
                 }
             });
 

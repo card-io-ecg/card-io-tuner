@@ -6,7 +6,10 @@ use eframe::{
 };
 use egui_plot::{AxisBools, GridInput, GridMark, Legend, Line, MarkerShape, PlotPoints, Points};
 
-use crate::data::{Cycle, Data};
+use crate::{
+    data::{Cycle, Data},
+    AppTab,
+};
 
 const EKG_COLOR: Color32 = Color32::from_rgb(100, 150, 250);
 
@@ -118,16 +121,18 @@ enum Tab {
 }
 
 pub struct SignalTab {
+    label: String,
     active_tab: Tab,
     data: Data,
 }
 
 impl SignalTab {
-    pub fn new(data: Data) -> Self {
-        Self {
+    pub fn new_boxed(label: String, data: Data) -> Box<Self> {
+        Box::new(Self {
+            label,
             data,
             active_tab: Tab::EKG,
-        }
+        })
     }
 
     fn ekg_tab(ui: &mut Ui, data: &mut Data) {
@@ -366,8 +371,14 @@ impl SignalTab {
                 }
             });
     }
+}
 
-    pub(crate) fn display(&mut self, ui: &mut Ui) -> bool {
+impl AppTab for SignalTab {
+    fn label(&self) -> &str {
+        &self.label
+    }
+
+    fn display(&mut self, ui: &mut Ui) -> bool {
         let mut close = false;
         ui.horizontal(|ui| {
             if ui.button("Close").clicked() {

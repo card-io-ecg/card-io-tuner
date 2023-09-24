@@ -1,4 +1,8 @@
-use std::{cell::Ref, path::PathBuf, sync::Arc};
+use std::{
+    cell::Ref,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use signal_processing::compressing_buffer::EkgFormat;
 
@@ -85,11 +89,11 @@ macro_rules! query {
 }
 
 impl Data {
-    pub fn load(path: PathBuf) -> Option<Self> {
+    pub fn load(path: &Path) -> Option<Self> {
         log::debug!("Loading {}", path.display());
-        std::fs::read(&path).ok().and_then(|bytes| {
+        std::fs::read(path).ok().and_then(|bytes| {
             let ekg = Ekg::load(bytes).ok()?;
-            Some(Self::new(path, ekg))
+            Some(Self::new(path.to_owned(), ekg))
         })
     }
 
