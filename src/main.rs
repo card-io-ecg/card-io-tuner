@@ -5,13 +5,16 @@ use std::{cell::RefCell, env, path::PathBuf};
 
 use eframe::egui;
 
-use crate::{app_config::AppConfig, data::Data, remote::RemoteTab, signal_tab::SignalTab};
+use crate::{
+    app_config::AppConfig,
+    data::Data,
+    tabs::{remote::RemoteTab, signal_tab::SignalTab},
+};
 
 mod analysis;
 mod app_config;
 mod data;
-mod remote;
-mod signal_tab;
+mod tabs;
 
 fn main() -> Result<(), eframe::Error> {
     env::set_var("RUST_LOG", "card_io_tuner=debug");
