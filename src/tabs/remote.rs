@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, io::Read, rc::Rc};
 
 use eframe::{
     egui::{self, Layout, TextEdit, Ui},
@@ -87,19 +87,40 @@ impl LoginData {
                         .build()
                         .unwrap();
 
-                    let response = client_builder
+                    let mut jwt = String::new();
+                    _ = client_builder
                         .post(config.borrow().backend_url("login"))
                         .json(&json!({
                             "username": &self.username,
                             "password": &self.password,
                         }))
-                        .send();
+                        .send()
+                        .unwrap()
+                        .read_to_string(&mut jwt);
 
-                    log::debug!("Sign in with {} - {response:#?}", self.password);
+                    let response = client_builder
+                        .get(config.borrow().backend_url("validate"))
+                        .header("Authorization", &format!("Bearer {jwt}"))
+                        .send()
+                        .unwrap();
+
+                    if response.status().is_success() {
+                        log::info!("Logged in. Token: {}", jwt);
+                    } else {
+                        log::error!(
+                            "Failed to validate token: {:?}",
+                            response.json::<Error>().unwrap().error
+                        );
+                    }
                 }
             });
         });
     }
+}
+
+#[derive(serde::Deserialize)]
+struct Error {
+    pub error: String,
 }
 
 enum RemoteState {
