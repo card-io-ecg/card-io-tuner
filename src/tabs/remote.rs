@@ -1,13 +1,12 @@
-use std::{cell::RefCell, io::Read, path::PathBuf, rc::Rc};
+use std::{io::Read, path::PathBuf};
 
 use eframe::{
     egui::{self, Label, Layout, Sense, TextEdit, Ui},
     emath::Align,
 };
-use reqwest::{blocking::Client, redirect::Policy};
 use serde_json::json;
 
-use crate::{app_config::AppConfig, AppTab};
+use crate::{AppContext, AppTab};
 
 // Copied from egui examples
 pub fn password_ui(ui: &mut egui::Ui, password: &mut String) -> egui::Response {
@@ -57,7 +56,7 @@ struct LoginData {
     password: String,
 }
 
-struct Token(String);
+pub struct Token(String);
 impl Token {
     fn new(jwt: &str) -> Self {
         Self(format!("Bearer {jwt}"))
@@ -76,7 +75,7 @@ impl LoginData {
         }
     }
 
-    fn display(&mut self, ui: &mut Ui, config: &RefCell<AppConfig>) -> Option<Token> {
+    fn display(&mut self, ui: &mut Ui, context: &mut AppContext) -> Option<Token> {
         let result = ui.with_layout(Layout::top_down(Align::Center), |ui| {
             ui.set_max_width(400.0);
             ui.group(|ui| {
@@ -93,15 +92,11 @@ impl LoginData {
                 });
 
                 if ui.button("Sign in").clicked() {
-                    let client_builder = Client::builder()
-                        .redirect(Policy::limited(3))
-                        .build()
-                        .unwrap();
-
                     let mut jwt = String::new();
 
-                    _ = client_builder
-                        .post(config.borrow().backend_url("login"))
+                    _ = context
+                        .http_client
+                        .post(context.config.backend_url("login"))
                         .json(&json!({
                             "username": &self.username,
                             "password": &self.password,
@@ -112,8 +107,9 @@ impl LoginData {
 
                     let token = Token::new(&jwt);
 
-                    let response = client_builder
-                        .get(config.borrow().backend_url("validate"))
+                    let response = context
+                        .http_client
+                        .get(context.config.backend_url("validate"))
                         .header("Authorization", token.header())
                         .send()
                         .unwrap();
@@ -159,15 +155,14 @@ enum RemotePage {
     Measurements(String, MeasurementList),
 }
 impl RemotePage {
-    fn new(config: &RefCell<AppConfig>, token: &Token) -> RemotePage {
-        let client_builder = Client::builder()
-            .redirect(Policy::limited(3))
-            .build()
-            .unwrap();
-
-        let response = client_builder
-            .get(config.borrow().backend_url("list_devices"))
-            .header("Authorization", token.header())
+    fn new(context: &AppContext) -> RemotePage {
+        let response = context
+            .http_client
+            .get(context.config.backend_url("list_devices"))
+            .header(
+                "Authorization",
+                context.auth_token.as_ref().unwrap().header(),
+            )
             .send()
             .unwrap()
             .json::<DeviceList>()
@@ -176,20 +171,20 @@ impl RemotePage {
         Self::Devices(response)
     }
 
-    fn measurements(config: &RefCell<AppConfig>, token: &mut Token, device: String) -> RemotePage {
+    fn measurements(context: &AppContext, device: String) -> RemotePage {
         log::info!("Getting measurements for {device}");
-        let client_builder = Client::builder()
-            .redirect(Policy::limited(3))
-            .build()
-            .unwrap();
 
-        let response = client_builder
+        let response = context
+            .http_client
             .get(
-                config
-                    .borrow()
+                context
+                    .config
                     .backend_url(format!("list_measurements/{device}")),
             )
-            .header("Authorization", token.header())
+            .header(
+                "Authorization",
+                context.auth_token.as_ref().unwrap().header(),
+            )
             .send()
             .unwrap()
             .json::<MeasurementList>()
@@ -201,20 +196,22 @@ impl RemotePage {
 
 enum RemoteState {
     Login(LoginData),
-    Authenticated(Token, RemotePage),
+    Authenticated(RemotePage),
 }
 
 impl RemoteState {
-    fn display(&mut self, ui: &mut Ui, config: &RefCell<AppConfig>) {
+    fn display(&mut self, ui: &mut Ui, context: &mut AppContext) {
         match self {
             Self::Login(data) => {
-                if let Some(token) = data.display(ui, config) {
-                    let page = RemotePage::new(config, &token);
-                    *self = Self::Authenticated(token, page);
+                data.display(ui, context);
+
+                if context.auth_token.is_some() {
+                    let page = RemotePage::new(context);
+                    *self = Self::Authenticated(page);
                 }
             }
 
-            Self::Authenticated(token, page) => {
+            Self::Authenticated(page) => {
                 ui.label("Logged in");
                 if ui.button("Log out").clicked() {
                     *self = Self::Login(LoginData::new());
@@ -225,11 +222,8 @@ impl RemoteState {
                             ui.vertical(|ui| {
                                 for device in &devices.devices {
                                     if ui.add(Label::new(device).sense(Sense::click())).clicked() {
-                                        new_page = Some(RemotePage::measurements(
-                                            config,
-                                            token,
-                                            device.clone(),
-                                        ));
+                                        new_page =
+                                            Some(RemotePage::measurements(context, device.clone()));
                                         break;
                                     }
                                 }
@@ -243,16 +237,15 @@ impl RemoteState {
                                         .clicked()
                                     {
                                         log::info!("Downloading {device}/{measurement}");
-                                        let client_builder = Client::builder()
-                                            .redirect(Policy::limited(3))
-                                            .build()
-                                            .unwrap();
-
-                                        let ekg = client_builder
-                                            .get(config.borrow().backend_url(format!(
+                                        let ekg = context
+                                            .http_client
+                                            .get(context.config.backend_url(format!(
                                                 "download_measurement/{device}/{measurement}"
                                             )))
-                                            .header("Authorization", token.header())
+                                            .header(
+                                                "Authorization",
+                                                context.auth_token.as_ref().unwrap().header(),
+                                            )
                                             .send()
                                             .unwrap()
                                             .bytes()
@@ -283,14 +276,12 @@ impl RemoteState {
 
 pub struct RemoteTab {
     state: RemoteState,
-    config: Rc<RefCell<AppConfig>>,
 }
 
 impl RemoteTab {
-    pub fn new_boxed(config: &Rc<RefCell<AppConfig>>) -> Box<dyn AppTab> {
+    pub fn new_boxed() -> Box<dyn AppTab> {
         Box::new(Self {
             state: RemoteState::Login(LoginData::new()),
-            config: config.clone(),
         })
     }
 }
@@ -300,8 +291,8 @@ impl AppTab for RemoteTab {
         "Remote"
     }
 
-    fn display(&mut self, ui: &mut Ui) -> bool {
-        self.state.display(ui, &self.config);
+    fn display(&mut self, ui: &mut Ui, context: &mut AppContext) -> bool {
+        self.state.display(ui, context);
         false
     }
 }

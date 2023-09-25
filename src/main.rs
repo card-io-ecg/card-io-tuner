@@ -1,14 +1,18 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![feature(iter_map_windows)]
 
-use std::{cell::RefCell, env, path::PathBuf, rc::Rc};
+use std::{env, path::PathBuf};
 
 use eframe::egui;
+use reqwest::{blocking::Client, redirect::Policy};
 
 use crate::{
     app_config::AppConfig,
     data::Data,
-    tabs::{remote::RemoteTab, signal_tab::SignalTab},
+    tabs::{
+        remote::{RemoteTab, Token},
+        signal_tab::SignalTab,
+    },
 };
 
 mod analysis;
@@ -33,26 +37,39 @@ fn main() -> Result<(), eframe::Error> {
 
 trait AppTab {
     fn label(&self) -> &str;
-    fn display(&mut self, ui: &mut egui::Ui) -> bool;
+    fn display(&mut self, ui: &mut egui::Ui, context: &mut AppContext) -> bool;
+}
+
+struct AppContext {
+    config: AppConfig,
+    http_client: Client,
+    auth_token: Option<Token>,
 }
 
 struct EkgTuner {
     tabs: Vec<Box<dyn AppTab>>,
     selected_tab: usize,
-    config: Rc<RefCell<AppConfig>>,
+    context: AppContext,
 }
 
 impl Default for EkgTuner {
     fn default() -> Self {
         let mut tabs = Vec::new();
 
-        let config = Rc::new(RefCell::new(AppConfig::load()));
-        tabs.push(RemoteTab::new_boxed(&config));
+        let context = AppContext {
+            config: AppConfig::load(),
+            http_client: Client::builder()
+                .redirect(Policy::limited(3))
+                .build()
+                .unwrap(),
+            auth_token: None,
+        };
+        tabs.push(RemoteTab::new_boxed());
 
         Self {
             tabs,
             selected_tab: 0,
-            config,
+            context,
         }
     }
 }
@@ -85,7 +102,7 @@ impl eframe::App for EkgTuner {
             });
 
             let close_current = if let Some(tab) = self.tabs.get_mut(self.selected_tab) {
-                tab.display(ui)
+                tab.display(ui, &mut self.context)
             } else {
                 false
             };

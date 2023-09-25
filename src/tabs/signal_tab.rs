@@ -8,7 +8,7 @@ use egui_plot::{AxisBools, GridInput, GridMark, Legend, Line, MarkerShape, PlotP
 
 use crate::{
     data::{Cycle, Data},
-    AppTab,
+    AppContext, AppTab,
 };
 
 const EKG_COLOR: Color32 = Color32::from_rgb(100, 150, 250);
@@ -378,7 +378,7 @@ impl AppTab for SignalTab {
         &self.label
     }
 
-    fn display(&mut self, ui: &mut Ui) -> bool {
+    fn display(&mut self, ui: &mut Ui, _: &mut AppContext) -> bool {
         let mut close = false;
         ui.horizontal(|ui| {
             if ui.button("Close").clicked() {
