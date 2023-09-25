@@ -1,4 +1,8 @@
-use std::{io::Read, path::PathBuf};
+use std::{
+    fs,
+    io::Read,
+    path::{Path, PathBuf},
+};
 
 use eframe::{
     egui::{self, Label, Layout, Sense, TextEdit, Ui},
@@ -249,7 +253,7 @@ impl RemoteState {
                                     continue;
                                 }
 
-                                let exists = std::path::Path::new(&file).exists();
+                                let exists = Path::new(&file).exists();
                                 if !exists {
                                     log::info!("Downloading {device}/{measurement}");
                                     let ekg = context
@@ -265,8 +269,8 @@ impl RemoteState {
                                         .unwrap()
                                         .bytes()
                                         .unwrap();
-                                    _ = std::fs::create_dir_all(file.parent().unwrap());
-                                    std::fs::write(&file, ekg.as_ref()).unwrap();
+                                    _ = fs::create_dir_all(file.parent().unwrap());
+                                    fs::write(&file, ekg.as_ref()).unwrap();
                                 } else {
                                     log::info!("Already downloaded {device}/{measurement}");
                                 }
