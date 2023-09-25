@@ -279,11 +279,13 @@ impl ProcessedSignal {
             });
 
             adjusted_idxs
-                .map(|idx| Cycle {
-                    samples: filtered.samples.clone(),
-                    start: idx - pre,
-                    position: idx,
-                    end: idx + post,
+                .filter_map(|idx| {
+                    filtered.samples.get(idx - pre..idx + post).map(|_| Cycle {
+                        samples: filtered.samples.clone(),
+                        start: idx - pre,
+                        position: idx,
+                        end: idx + post,
+                    })
                 })
                 .collect::<Vec<_>>()
         })
