@@ -229,38 +229,46 @@ impl RemoteState {
                     RemotePage::Measurements(device, measurements) => {
                         ui.vertical(|ui| {
                             for measurement in &measurements.measurements {
-                                if ui
-                                    .add(Label::new(measurement).sense(Sense::click()))
-                                    .clicked()
-                                {
+                                ui.horizontal(|ui| {
+                                    // TODO: avoid allocation and fs scanning
                                     let file =
                                         PathBuf::from(format!("data/{device}/{measurement}"));
 
-                                    if !std::path::Path::new(&file).exists() {
-                                        log::info!("Downloading {device}/{measurement}");
-                                        let ekg = context
-                                            .http_client
-                                            .get(context.config.backend_url(format!(
-                                                "download_measurement/{device}/{measurement}"
-                                            )))
-                                            .header(
-                                                "Authorization",
-                                                context.auth_token.as_ref().unwrap().header(),
-                                            )
-                                            .send()
-                                            .unwrap()
-                                            .bytes()
-                                            .unwrap();
-                                        _ = std::fs::create_dir_all(file.parent().unwrap());
-                                        std::fs::write(&file, ekg.as_ref()).unwrap();
-                                    } else {
-                                        log::info!("Already downloaded {device}/{measurement}");
+                                    if ui
+                                        .add(Label::new(measurement).sense(Sense::click()))
+                                        .clicked()
+                                    {
+                                        let exists = std::path::Path::new(&file).exists();
+                                        if !exists {
+                                            log::info!("Downloading {device}/{measurement}");
+                                            let ekg = context
+                                                .http_client
+                                                .get(context.config.backend_url(format!(
+                                                    "download_measurement/{device}/{measurement}"
+                                                )))
+                                                .header(
+                                                    "Authorization",
+                                                    context.auth_token.as_ref().unwrap().header(),
+                                                )
+                                                .send()
+                                                .unwrap()
+                                                .bytes()
+                                                .unwrap();
+                                            _ = std::fs::create_dir_all(file.parent().unwrap());
+                                            std::fs::write(&file, ekg.as_ref()).unwrap();
+                                        } else {
+                                            log::info!("Already downloaded {device}/{measurement}");
+                                        }
+
+                                        context.messages.push(AppMessage::LoadFile(file.clone()));
                                     }
 
-                                    context.messages.push(AppMessage::LoadFile(file));
-
-                                    break;
-                                }
+                                    // if exists {
+                                    //     if ui.button("Delete stored").clicked() {
+                                    //         _ = std::fs::remove_file(&file);
+                                    //     }
+                                    // }
+                                });
                             }
                         });
                     }
