@@ -1,4 +1,4 @@
-use std::{cell::RefCell, io::Read, rc::Rc};
+use std::{cell::RefCell, io::Read, path::PathBuf, rc::Rc};
 
 use eframe::{
     egui::{self, Label, Layout, Sense, TextEdit, Ui},
@@ -257,6 +257,13 @@ impl RemoteState {
                                             .unwrap()
                                             .bytes()
                                             .unwrap();
+
+                                        let file =
+                                            PathBuf::from(format!("data/{device}/{measurement}"));
+                                        if !std::path::Path::new(&file).exists() {
+                                            _ = std::fs::create_dir_all(file.parent().unwrap());
+                                            std::fs::write(file, ekg.as_ref()).unwrap();
+                                        }
 
                                         break;
                                     }
