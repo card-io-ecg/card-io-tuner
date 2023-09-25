@@ -6,7 +6,7 @@ use eframe::{
 };
 use serde_json::json;
 
-use crate::{AppContext, AppTab};
+use crate::{AppContext, AppMessage, AppTab};
 
 // Copied from egui examples
 pub fn password_ui(ui: &mut egui::Ui, password: &mut String) -> egui::Response {
@@ -75,8 +75,8 @@ impl LoginData {
         }
     }
 
-    fn display(&mut self, ui: &mut Ui, context: &mut AppContext) -> Option<Token> {
-        let result = ui.with_layout(Layout::top_down(Align::Center), |ui| {
+    fn display(&mut self, ui: &mut Ui, context: &mut AppContext) {
+        ui.with_layout(Layout::top_down(Align::Center), |ui| {
             ui.set_max_width(400.0);
             ui.group(|ui| {
                 ui.heading("Log in to remote server");
@@ -116,22 +116,16 @@ impl LoginData {
 
                     if response.status().is_success() {
                         log::info!("Logged in. Token: {}", jwt);
-                        Some(token)
+                        context.auth_token = Some(token);
                     } else {
                         log::error!(
                             "Failed to validate token: {:?}",
                             response.json::<Error>().unwrap().error
                         );
-                        None
                     }
-                } else {
-                    None
                 }
-            })
-            .inner
+            });
         });
-
-        result.inner
     }
 }
 
@@ -214,28 +208,35 @@ impl RemoteState {
             Self::Authenticated(page) => {
                 ui.label("Logged in");
                 if ui.button("Log out").clicked() {
+                    context.auth_token = None;
                     *self = Self::Login(LoginData::new());
-                } else {
-                    let mut new_page = None;
-                    match page {
-                        RemotePage::Devices(devices) => {
-                            ui.vertical(|ui| {
-                                for device in &devices.devices {
-                                    if ui.add(Label::new(device).sense(Sense::click())).clicked() {
-                                        new_page =
-                                            Some(RemotePage::measurements(context, device.clone()));
-                                        break;
-                                    }
+                    return;
+                }
+
+                let mut new_page = None;
+                match page {
+                    RemotePage::Devices(devices) => {
+                        ui.vertical(|ui| {
+                            for device in &devices.devices {
+                                if ui.add(Label::new(device).sense(Sense::click())).clicked() {
+                                    new_page =
+                                        Some(RemotePage::measurements(context, device.clone()));
+                                    break;
                                 }
-                            });
-                        }
-                        RemotePage::Measurements(device, measurements) => {
-                            ui.vertical(|ui| {
-                                for measurement in &measurements.measurements {
-                                    if ui
-                                        .add(Label::new(measurement).sense(Sense::click()))
-                                        .clicked()
-                                    {
+                            }
+                        });
+                    }
+                    RemotePage::Measurements(device, measurements) => {
+                        ui.vertical(|ui| {
+                            for measurement in &measurements.measurements {
+                                if ui
+                                    .add(Label::new(measurement).sense(Sense::click()))
+                                    .clicked()
+                                {
+                                    let file =
+                                        PathBuf::from(format!("data/{device}/{measurement}"));
+
+                                    if !std::path::Path::new(&file).exists() {
                                         log::info!("Downloading {device}/{measurement}");
                                         let ekg = context
                                             .http_client
@@ -250,24 +251,23 @@ impl RemoteState {
                                             .unwrap()
                                             .bytes()
                                             .unwrap();
-
-                                        let file =
-                                            PathBuf::from(format!("data/{device}/{measurement}"));
-                                        if !std::path::Path::new(&file).exists() {
-                                            _ = std::fs::create_dir_all(file.parent().unwrap());
-                                            std::fs::write(file, ekg.as_ref()).unwrap();
-                                        }
-
-                                        break;
+                                        _ = std::fs::create_dir_all(file.parent().unwrap());
+                                        std::fs::write(&file, ekg.as_ref()).unwrap();
+                                    } else {
+                                        log::info!("Already downloaded {device}/{measurement}");
                                     }
-                                }
-                            });
-                        }
-                    }
 
-                    if let Some(new_page) = new_page {
-                        *page = new_page;
+                                    context.messages.push(AppMessage::LoadFile(file));
+
+                                    break;
+                                }
+                            }
+                        });
                     }
+                }
+
+                if let Some(new_page) = new_page {
+                    *page = new_page;
                 }
             }
         }

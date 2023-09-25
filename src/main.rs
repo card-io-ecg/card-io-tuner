@@ -44,6 +44,11 @@ struct AppContext {
     config: AppConfig,
     http_client: Client,
     auth_token: Option<Token>,
+    messages: Vec<AppMessage>,
+}
+
+enum AppMessage {
+    LoadFile(PathBuf),
 }
 
 struct EkgTuner {
@@ -63,6 +68,7 @@ impl Default for EkgTuner {
                 .build()
                 .unwrap(),
             auth_token: None,
+            messages: Vec::new(),
         };
         tabs.push(RemoteTab::new_boxed());
 
@@ -92,7 +98,7 @@ impl eframe::App for EkgTuner {
             ui.horizontal(|ui| {
                 if ui.button("Open file").clicked() {
                     if let Some(file) = rfd::FileDialog::new().pick_file() {
-                        self.load(file);
+                        self.context.messages.push(AppMessage::LoadFile(file));
                     }
                 }
 
@@ -116,9 +122,15 @@ impl eframe::App for EkgTuner {
         ctx.input(|i| {
             if !i.raw.dropped_files.is_empty() {
                 if let Some(file) = i.raw.dropped_files[0].path.clone() {
-                    self.load(file);
+                    self.context.messages.push(AppMessage::LoadFile(file));
                 }
             }
         });
+
+        for message in std::mem::take(&mut self.context.messages) {
+            match message {
+                AppMessage::LoadFile(file) => self.load(file),
+            }
+        }
     }
 }
