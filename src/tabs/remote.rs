@@ -5,7 +5,7 @@ use std::{
 };
 
 use eframe::{
-    egui::{self, Label, Layout, Sense, TextEdit, Ui},
+    egui::{self, Label, Layout, Sense, TextEdit, Ui, Widget},
     emath::Align,
 };
 use serde_json::json;
@@ -51,8 +51,12 @@ pub fn password_ui(ui: &mut egui::Ui, password: &mut String) -> egui::Response {
     result.response
 }
 
-pub fn password(password: &mut String) -> impl egui::Widget + '_ {
+pub fn password(password: &mut String) -> impl Widget + '_ {
     move |ui: &mut egui::Ui| password_ui(ui, password)
+}
+
+fn clickable_label(measurement: &str) -> impl Widget + '_ {
+    Label::new(measurement).sense(Sense::click())
 }
 
 struct LoginData {
@@ -236,7 +240,7 @@ impl RemoteState {
                     RemotePage::Devices(devices) => {
                         ui.vertical(|ui| {
                             for device in &devices.devices {
-                                if ui.add(Label::new(device).sense(Sense::click())).clicked() {
+                                if ui.add(clickable_label(device)).clicked() {
                                     new_page = Some(RemotePage::measurements(context, &device));
                                     break;
                                 }
@@ -246,10 +250,7 @@ impl RemoteState {
                     RemotePage::Measurements(device, measurements) => {
                         ui.vertical(|ui| {
                             for (measurement, file) in &measurements.measurements {
-                                if !ui
-                                    .add(Label::new(measurement).sense(Sense::click()))
-                                    .clicked()
-                                {
+                                if !ui.add(clickable_label(measurement)).clicked() {
                                     continue;
                                 }
 
