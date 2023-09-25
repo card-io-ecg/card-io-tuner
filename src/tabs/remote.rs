@@ -140,8 +140,13 @@ struct DeviceList {
 }
 
 #[derive(serde::Deserialize)]
-struct MeasurementList {
+struct RemoteMeasurementList {
     pub measurements: Vec<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct MeasurementList {
+    pub measurements: Vec<(String, PathBuf)>,
 }
 
 enum RemotePage {
@@ -165,7 +170,7 @@ impl RemotePage {
         Self::Devices(response)
     }
 
-    fn measurements(context: &AppContext, device: String) -> RemotePage {
+    fn measurements(context: &AppContext, device: &str) -> RemotePage {
         log::info!("Getting measurements for {device}");
 
         let response = context
@@ -181,10 +186,19 @@ impl RemotePage {
             )
             .send()
             .unwrap()
-            .json::<MeasurementList>()
+            .json::<RemoteMeasurementList>()
             .unwrap();
 
-        Self::Measurements(device, response)
+        Self::Measurements(
+            device.to_string(),
+            MeasurementList {
+                measurements: response
+                    .measurements
+                    .into_iter()
+                    .map(|m| (m.clone(), PathBuf::from(format!("data/{device}/{m}"))))
+                    .collect(),
+            },
+        )
     }
 }
 
@@ -219,8 +233,7 @@ impl RemoteState {
                         ui.vertical(|ui| {
                             for device in &devices.devices {
                                 if ui.add(Label::new(device).sense(Sense::click())).clicked() {
-                                    new_page =
-                                        Some(RemotePage::measurements(context, device.clone()));
+                                    new_page = Some(RemotePage::measurements(context, &device));
                                     break;
                                 }
                             }
@@ -228,12 +241,8 @@ impl RemoteState {
                     }
                     RemotePage::Measurements(device, measurements) => {
                         ui.vertical(|ui| {
-                            for measurement in &measurements.measurements {
+                            for (measurement, file) in &measurements.measurements {
                                 ui.horizontal(|ui| {
-                                    // TODO: avoid allocation and fs scanning
-                                    let file =
-                                        PathBuf::from(format!("data/{device}/{measurement}"));
-
                                     if ui
                                         .add(Label::new(measurement).sense(Sense::click()))
                                         .clicked()
@@ -262,12 +271,6 @@ impl RemoteState {
 
                                         context.messages.push(AppMessage::LoadFile(file.clone()));
                                     }
-
-                                    // if exists {
-                                    //     if ui.button("Delete stored").clicked() {
-                                    //         _ = std::fs::remove_file(&file);
-                                    //     }
-                                    // }
                                 });
                             }
                         });
