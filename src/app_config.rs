@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fmt::Display, fs};
 
 use log::warn;
 use serde::{Deserialize, Serialize};
@@ -42,7 +42,7 @@ impl AppConfig {
         }
     }
 
-    pub fn backend_url(&self, path: &str) -> String {
+    pub fn backend_url(&self, path: impl Display) -> String {
         format!("{}/{}", self.backend_url, path)
     }
 }
