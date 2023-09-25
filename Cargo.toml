@@ -10,9 +10,11 @@ eframe = { git = "https://github.com/emilk/egui.git" }
 egui_plot = { git = "https://github.com/emilk/egui.git" }
 env_logger = "0.10"
 log = "0.4"
+reqwest = { version = "0.11.20", features = ["json", "blocking"] }
 rfd = "0.12.0"
 rustfft = "6.1.0"
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0.107"
 signal-processing = { git = "https://github.com/card-io-ecg/card-io-fw.git" }
 # signal-processing = { path = "../card-io-fw/signal-processing" }
 toml = "0.8.0"

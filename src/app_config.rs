@@ -41,4 +41,8 @@ impl AppConfig {
             warn!("Failed to write config.toml: {}", e);
         }
     }
+
+    pub fn backend_url(&self, path: &str) -> String {
+        format!("{}/{}", self.backend_url, path)
+    }
 }

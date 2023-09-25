@@ -1,6 +1,13 @@
-use eframe::egui::{self, Layout, TextEdit};
+use std::{cell::RefCell, rc::Rc};
 
-use crate::AppTab;
+use eframe::{
+    egui::{self, Layout, TextEdit, Ui},
+    emath::Align,
+};
+use reqwest::{blocking::Client, redirect::Policy};
+use serde_json::json;
+
+use crate::{app_config::AppConfig, AppTab};
 
 // Copied from egui examples
 pub fn password_ui(ui: &mut egui::Ui, password: &mut String) -> egui::Response {
@@ -58,8 +65,8 @@ impl LoginData {
         }
     }
 
-    fn display(&mut self, ui: &mut eframe::egui::Ui) {
-        ui.with_layout(Layout::top_down(eframe::emath::Align::Center), |ui| {
+    fn display(&mut self, ui: &mut Ui, config: &RefCell<AppConfig>) {
+        ui.with_layout(Layout::top_down(Align::Center), |ui| {
             ui.set_max_width(400.0);
             ui.group(|ui| {
                 ui.heading("Log in to remote server");
@@ -75,7 +82,20 @@ impl LoginData {
                 });
 
                 if ui.button("Sign in").clicked() {
-                    log::debug!("Sign in with {}", self.password);
+                    let client_builder = Client::builder()
+                        .redirect(Policy::limited(3))
+                        .build()
+                        .unwrap();
+
+                    let response = client_builder
+                        .post(config.borrow().backend_url("login"))
+                        .json(&json!({
+                            "username": &self.username,
+                            "password": &self.password,
+                        }))
+                        .send();
+
+                    log::debug!("Sign in with {} - {response:#?}", self.password);
                 }
             });
         });
@@ -87,21 +107,23 @@ enum RemoteState {
 }
 
 impl RemoteState {
-    fn display(&mut self, ui: &mut eframe::egui::Ui) {
+    fn display(&mut self, ui: &mut Ui, config: &RefCell<AppConfig>) {
         match self {
-            Self::Login(data) => data.display(ui),
+            Self::Login(data) => data.display(ui, config),
         }
     }
 }
 
 pub struct RemoteTab {
     state: RemoteState,
+    config: Rc<RefCell<AppConfig>>,
 }
 
 impl RemoteTab {
-    pub fn new_boxed() -> Box<dyn AppTab> {
+    pub fn new_boxed(config: &Rc<RefCell<AppConfig>>) -> Box<dyn AppTab> {
         Box::new(Self {
             state: RemoteState::Login(LoginData::new()),
+            config: config.clone(),
         })
     }
 }
@@ -111,8 +133,8 @@ impl AppTab for RemoteTab {
         "Remote"
     }
 
-    fn display(&mut self, ui: &mut eframe::egui::Ui) -> bool {
-        self.state.display(ui);
+    fn display(&mut self, ui: &mut Ui) -> bool {
+        self.state.display(ui, &self.config);
         false
     }
 }

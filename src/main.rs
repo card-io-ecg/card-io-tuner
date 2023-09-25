@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![feature(iter_map_windows)]
 
-use std::{cell::RefCell, env, path::PathBuf};
+use std::{cell::RefCell, env, path::PathBuf, rc::Rc};
 
 use eframe::egui;
 
@@ -39,19 +39,20 @@ trait AppTab {
 struct EkgTuner {
     tabs: Vec<Box<dyn AppTab>>,
     selected_tab: usize,
-    config: RefCell<AppConfig>,
+    config: Rc<RefCell<AppConfig>>,
 }
 
 impl Default for EkgTuner {
     fn default() -> Self {
         let mut tabs = Vec::new();
 
-        tabs.push(RemoteTab::new_boxed());
+        let config = Rc::new(RefCell::new(AppConfig::load()));
+        tabs.push(RemoteTab::new_boxed(&config));
 
         Self {
             tabs,
             selected_tab: 0,
-            config: RefCell::new(AppConfig::load()),
+            config,
         }
     }
 }
