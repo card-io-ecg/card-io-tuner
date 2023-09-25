@@ -8,6 +8,7 @@ use eframe::{
     egui::{self, Label, Layout, Sense, TextEdit, Ui, Widget},
     emath::Align,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::{AppContext, AppMessage, AppTab};
@@ -64,7 +65,10 @@ struct LoginData {
     password: String,
 }
 
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct Token(String);
+
 impl Token {
     fn new(jwt: &str) -> Self {
         Self(format!("Bearer {jwt}"))
@@ -72,6 +76,10 @@ impl Token {
 
     fn header(&self) -> &str {
         &self.0
+    }
+
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }
 
@@ -124,7 +132,7 @@ impl LoginData {
 
                     if response.status().is_success() {
                         log::info!("Logged in. Token: {}", jwt);
-                        context.auth_token = Some(token);
+                        context.config.set_auth_token(token);
                     } else {
                         log::error!(
                             "Failed to validate token: {:?}",
@@ -166,10 +174,7 @@ impl RemotePage {
         let response = context
             .http_client
             .get(context.config.backend_url("list_devices"))
-            .header(
-                "Authorization",
-                context.auth_token.as_ref().unwrap().header(),
-            )
+            .header("Authorization", context.config.auth_token.header())
             .send()
             .unwrap()
             .json::<DeviceList>()
@@ -188,10 +193,7 @@ impl RemotePage {
                     .config
                     .backend_url(format!("list_measurements/{device}")),
             )
-            .header(
-                "Authorization",
-                context.auth_token.as_ref().unwrap().header(),
-            )
+            .header("Authorization", context.config.auth_token.header())
             .send()
             .unwrap()
             .json::<RemoteMeasurementList>()
@@ -221,7 +223,7 @@ impl RemoteState {
             Self::Login(data) => {
                 data.display(ui, context);
 
-                if context.auth_token.is_some() {
+                if !context.config.auth_token.is_empty() {
                     let page = RemotePage::new(context);
                     *self = Self::Authenticated(page);
                 }
@@ -230,7 +232,7 @@ impl RemoteState {
             Self::Authenticated(page) => {
                 ui.label("Logged in");
                 if ui.button("Log out").clicked() {
-                    context.auth_token = None;
+                    context.config.clear_auth_token();
                     *self = Self::Login(LoginData::new());
                     return;
                 }
@@ -262,10 +264,7 @@ impl RemoteState {
                                         .get(context.config.backend_url(format!(
                                             "download_measurement/{device}/{measurement}"
                                         )))
-                                        .header(
-                                            "Authorization",
-                                            context.auth_token.as_ref().unwrap().header(),
-                                        )
+                                        .header("Authorization", context.config.auth_token.header())
                                         .send()
                                         .unwrap()
                                         .bytes()

@@ -9,10 +9,7 @@ use reqwest::{blocking::Client, redirect::Policy};
 use crate::{
     app_config::AppConfig,
     data::Data,
-    tabs::{
-        remote::{RemoteTab, Token},
-        signal_tab::SignalTab,
-    },
+    tabs::{remote::RemoteTab, signal_tab::SignalTab},
 };
 
 mod analysis;
@@ -43,7 +40,6 @@ trait AppTab {
 struct AppContext {
     config: AppConfig,
     http_client: Client,
-    auth_token: Option<Token>,
     messages: Vec<AppMessage>,
 }
 
@@ -67,7 +63,6 @@ impl Default for EkgTuner {
                 .redirect(Policy::limited(3))
                 .build()
                 .unwrap(),
-            auth_token: None,
             messages: Vec::new(),
         };
         tabs.push(RemoteTab::new_boxed());
