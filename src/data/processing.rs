@@ -53,6 +53,7 @@ pub struct Context {
 }
 
 pub struct ProcessedSignal {
+    raw_ekg: DataCell<Ekg>,
     filtered_ekg: DataCell<Ekg>,
     fft: DataCell<Vec<f32>>,
     hrs: DataCell<HrData>,
@@ -67,6 +68,7 @@ pub struct ProcessedSignal {
 impl ProcessedSignal {
     pub fn new() -> Self {
         Self {
+            raw_ekg: DataCell::new("raw_ekg"),
             filtered_ekg: DataCell::new("filtered_ekg"),
             fft: DataCell::new("fft"),
             hrs: DataCell::new("hrs"),
@@ -91,17 +93,27 @@ impl ProcessedSignal {
         self.adjusted_rr_intervals.clear();
     }
 
-    pub fn filtered_ekg(&self, context: &Context) -> Ref<'_, Ekg> {
-        self.filtered_ekg.get(|| {
-            log::debug!("Data::filtered_ekg");
-
+    pub fn raw_ekg(&self, context: &Context) -> Ref<'_, Ekg> {
+        self.raw_ekg.get(|| {
             let ignore_start = context.config.ignored_start;
             let ignore_end = context.config.ignored_end;
 
             let sample_count = context.raw_ekg.samples.len();
 
-            let mut samples =
-                context.raw_ekg.samples[ignore_start..sample_count - ignore_end].to_vec();
+            Ekg {
+                samples: Arc::from(
+                    context.raw_ekg.samples[ignore_start..sample_count - ignore_end].to_vec(),
+                ),
+                fs: context.raw_ekg.fs,
+            }
+        })
+    }
+
+    pub fn filtered_ekg(&self, context: &Context) -> Ref<'_, Ekg> {
+        self.filtered_ekg.get(|| {
+            log::debug!("Data::filtered_ekg");
+
+            let mut samples = self.raw_ekg(context).samples.to_vec();
 
             if context.config.pli {
                 apply_filter(
