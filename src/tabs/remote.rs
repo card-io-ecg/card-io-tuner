@@ -5,6 +5,7 @@ use std::{
 };
 
 use eframe::egui::{self, Label, Sense, TextEdit, Ui, Widget};
+use rfd::MessageDialogResult;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -275,19 +276,33 @@ impl RemoteState {
                             for (measurement, file) in &measurements.measurements {
                                 ui.horizontal(|ui| {
                                     if ui.button("🗑").clicked() {
-                                        context
-                                            .http_client
-                                            .delete(context.config.backend_url(format!(
-                                                "measurements/{device}/{measurement}"
-                                            )))
-                                            .header(
-                                                "Authorization",
-                                                context.config.auth_token.header(),
-                                            )
-                                            .send()
-                                            .unwrap();
-                                        new_page = Some(RemotePage::measurements(context, &device));
+                                        let message = format!("Are you sure you want to delete {measurement}?\nThis will remove the measurement from the cloud but it will not delete the local copy.");
+
+                                        let result = rfd::MessageDialog::new()
+                                            .set_description(message)
+                                            .set_buttons(rfd::MessageButtons::YesNo)
+                                            .set_level(rfd::MessageLevel::Info)
+                                            .set_title("Delete measurement")
+                                            .show();
+
+                                        if result == MessageDialogResult::Yes {
+                                            context
+                                                .http_client
+                                                .delete(context.config.backend_url(format!(
+                                                    "measurements/{device}/{measurement}"
+                                                )))
+                                                .header(
+                                                    "Authorization",
+                                                    context.config.auth_token.header(),
+                                                )
+                                                .send()
+                                                .unwrap();
+
+                                            new_page =
+                                                Some(RemotePage::measurements(context, &device));
+                                        }
                                     }
+
                                     if ui.add(clickable_label(measurement)).clicked() {
                                         let exists = Path::new(&file).exists();
                                         if exists {
