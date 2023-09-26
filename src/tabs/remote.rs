@@ -191,11 +191,7 @@ impl RemotePage {
 
         let mut response = context
             .http_client
-            .get(
-                context
-                    .config
-                    .backend_url(format!("list_measurements/{device}")),
-            )
+            .get(context.config.backend_url(format!("measurements/{device}")))
             .header("Authorization", context.config.auth_token.header())
             .send()
             .unwrap()
@@ -249,6 +245,7 @@ impl RemoteState {
                             new_page = Some(RemotePage::new(context));
                         }
                         ui.vertical(|ui| {
+                            ui.heading("Your devices");
                             for device in &devices.devices {
                                 if ui.add(clickable_label(device)).clicked() {
                                     new_page = Some(RemotePage::measurements(context, &device));
@@ -258,35 +255,60 @@ impl RemoteState {
                         });
                     }
                     RemotePage::Measurements(device, measurements) => {
-                        if ui.button("Reload").clicked() {
-                            new_page = Some(RemotePage::measurements(context, &device));
-                        }
+                        ui.horizontal(|ui| {
+                            if ui.button("Reload").clicked() {
+                                new_page = Some(RemotePage::measurements(context, &device));
+                            }
+                            if ui.button("Back").clicked() {
+                                new_page = Some(RemotePage::new(context));
+                            }
+                        });
+
                         ui.vertical(|ui| {
+                            ui.heading(format!("Measurements of {device}"));
+
                             for (measurement, file) in &measurements.measurements {
-                                if !ui.add(clickable_label(measurement)).clicked() {
-                                    continue;
-                                }
+                                ui.horizontal(|ui| {
+                                    if ui.button("🗑").clicked() {
+                                        context
+                                            .http_client
+                                            .delete(context.config.backend_url(format!(
+                                                "measurements/{device}/{measurement}"
+                                            )))
+                                            .header(
+                                                "Authorization",
+                                                context.config.auth_token.header(),
+                                            )
+                                            .send()
+                                            .unwrap();
+                                        new_page = Some(RemotePage::measurements(context, &device));
+                                    }
+                                    if ui.add(clickable_label(measurement)).clicked() {
+                                        let exists = Path::new(&file).exists();
+                                        if exists {
+                                            log::info!("Already downloaded {device}/{measurement}");
+                                        } else {
+                                            log::info!("Downloading {device}/{measurement}");
+                                            let ekg = context
+                                                .http_client
+                                                .get(context.config.backend_url(format!(
+                                                    "measurements/{device}/{measurement}"
+                                                )))
+                                                .header(
+                                                    "Authorization",
+                                                    context.config.auth_token.header(),
+                                                )
+                                                .send()
+                                                .unwrap()
+                                                .bytes()
+                                                .unwrap();
+                                            _ = fs::create_dir_all(file.parent().unwrap());
+                                            fs::write(&file, ekg.as_ref()).unwrap();
+                                        }
 
-                                let exists = Path::new(&file).exists();
-                                if !exists {
-                                    log::info!("Downloading {device}/{measurement}");
-                                    let ekg = context
-                                        .http_client
-                                        .get(context.config.backend_url(format!(
-                                            "download_measurement/{device}/{measurement}"
-                                        )))
-                                        .header("Authorization", context.config.auth_token.header())
-                                        .send()
-                                        .unwrap()
-                                        .bytes()
-                                        .unwrap();
-                                    _ = fs::create_dir_all(file.parent().unwrap());
-                                    fs::write(&file, ekg.as_ref()).unwrap();
-                                } else {
-                                    log::info!("Already downloaded {device}/{measurement}");
-                                }
-
-                                context.send_message(AppMessage::LoadFile(file.clone()));
+                                        context.send_message(AppMessage::LoadFile(file.clone()));
+                                    }
+                                });
                             }
                         });
                     }
