@@ -148,7 +148,22 @@ impl Data {
         let old = self.context.config;
         f(&mut self.context.config);
 
-        if old != self.context.config {
+        let high_pass_changed = old.high_pass != self.context.config.high_pass;
+        let pli_changed = old.pli != self.context.config.pli;
+        let low_pass_changed = old.low_pass != self.context.config.low_pass;
+        let hr_debug_changed = old.hr_debug != self.context.config.hr_debug;
+        let ignored_start_changed = old.ignored_start != self.context.config.ignored_start;
+        let ignored_end_changed = old.ignored_end != self.context.config.ignored_end;
+        // let row_width_changed = old.row_width != self.context.config.row_width;
+
+        let reprocess = high_pass_changed
+            || pli_changed
+            || low_pass_changed
+            || hr_debug_changed
+            || ignored_start_changed
+            || ignored_end_changed;
+
+        if reprocess {
             self.clear_processed();
         }
     }

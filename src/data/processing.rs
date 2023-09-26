@@ -32,6 +32,7 @@ pub struct Config {
     pub hr_debug: bool,
     pub ignored_start: usize,
     pub ignored_end: usize,
+    pub row_width: usize,
 }
 
 impl Default for Config {
@@ -43,6 +44,7 @@ impl Default for Config {
             hr_debug: false,
             ignored_start: 0,
             ignored_end: 200,
+            row_width: 6000,
         }
     }
 }

@@ -121,9 +121,11 @@ impl SignalTab {
             let ekg_data = data.filtered_ekg();
             let adjusted_cycles = data.adjusted_cycles();
 
-            let ekg = ekg_data.samples.chunks(6 * 1000);
-            let threshold = hr_data.thresholds.chunks(6 * 1000);
-            let complex_lead = hr_data.complex_lead.chunks(6 * 1000);
+            let chunk = data.config().row_width.max(1);
+
+            let ekg = ekg_data.samples.chunks(chunk);
+            let threshold = hr_data.thresholds.chunks(chunk);
+            let complex_lead = hr_data.complex_lead.chunks(chunk);
 
             for (ekg, (threshold, complex_lead)) in ekg.zip(threshold.zip(complex_lead)) {
                 let (min, max) = ekg
@@ -354,6 +356,11 @@ impl SignalTab {
 
                             ui.label("End");
                             ui.add(DragValue::new(&mut config.ignored_end).speed(1));
+
+                            ui.end_row();
+
+                            ui.label("Row");
+                            ui.add(DragValue::new(&mut config.row_width).speed(1));
                         });
                     });
 
