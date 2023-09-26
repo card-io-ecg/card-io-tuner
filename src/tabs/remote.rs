@@ -4,10 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use eframe::{
-    egui::{self, Label, Layout, Sense, TextEdit, Ui, Widget},
-    emath::Align,
-};
+use eframe::egui::{self, Label, Sense, TextEdit, Ui, Widget};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -92,54 +89,60 @@ impl LoginData {
     }
 
     fn display(&mut self, ui: &mut Ui, context: &mut AppContext) {
-        ui.with_layout(Layout::top_down(Align::Center), |ui| {
-            ui.set_max_width(400.0);
-            ui.group(|ui| {
-                ui.heading("Log in to remote server");
+        ui.horizontal_centered(|ui| {
+            ui.set_max_height(150.0);
+            ui.vertical_centered(|ui| {
+                ui.set_max_width(400.0);
 
-                egui::Grid::new("login").num_columns(2).show(ui, |ui| {
-                    ui.label("Name:");
-                    ui.text_edit_singleline(&mut self.username);
+                ui.group(|ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.heading("Log in to remote server");
 
-                    ui.end_row();
+                        egui::Grid::new("login").num_columns(2).show(ui, |ui| {
+                            ui.label("Name:");
+                            ui.text_edit_singleline(&mut self.username);
 
-                    ui.label("Password:");
-                    ui.add(password(&mut self.password));
+                            ui.end_row();
+
+                            ui.label("Password:");
+                            ui.add(password(&mut self.password));
+                        });
+
+                        if ui.button("Sign in").clicked() {
+                            let mut jwt = String::new();
+
+                            _ = context
+                                .http_client
+                                .post(context.config.backend_url("login"))
+                                .json(&json!({
+                                    "username": &self.username,
+                                    "password": &self.password,
+                                }))
+                                .send()
+                                .unwrap()
+                                .read_to_string(&mut jwt);
+
+                            let token = Token::new(&jwt);
+
+                            let response = context
+                                .http_client
+                                .get(context.config.backend_url("validate"))
+                                .header("Authorization", token.header())
+                                .send()
+                                .unwrap();
+
+                            if response.status().is_success() {
+                                log::info!("Logged in. Token: {}", jwt);
+                                context.config.set_auth_token(token);
+                            } else {
+                                log::error!(
+                                    "Failed to validate token: {:?}",
+                                    response.json::<Error>().unwrap().error
+                                );
+                            }
+                        }
+                    });
                 });
-
-                if ui.button("Sign in").clicked() {
-                    let mut jwt = String::new();
-
-                    _ = context
-                        .http_client
-                        .post(context.config.backend_url("login"))
-                        .json(&json!({
-                            "username": &self.username,
-                            "password": &self.password,
-                        }))
-                        .send()
-                        .unwrap()
-                        .read_to_string(&mut jwt);
-
-                    let token = Token::new(&jwt);
-
-                    let response = context
-                        .http_client
-                        .get(context.config.backend_url("validate"))
-                        .header("Authorization", token.header())
-                        .send()
-                        .unwrap();
-
-                    if response.status().is_success() {
-                        log::info!("Logged in. Token: {}", jwt);
-                        context.config.set_auth_token(token);
-                    } else {
-                        log::error!(
-                            "Failed to validate token: {:?}",
-                            response.json::<Error>().unwrap().error
-                        );
-                    }
-                }
             });
         });
     }
