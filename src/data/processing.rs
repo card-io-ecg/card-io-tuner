@@ -1,6 +1,7 @@
 use std::{cell::Ref, sync::Arc};
 
 use rustfft::num_complex::{Complex, ComplexFloat};
+use serde::{Deserialize, Serialize};
 use signal_processing::{
     designfilt,
     filter::{
@@ -23,11 +24,27 @@ pub struct HrData {
     pub complex_lead: Vec<f32>,
 }
 
+#[derive(Clone, Deserialize, Serialize)]
 pub struct Config {
     pub high_pass: bool,
     pub pli: bool,
     pub low_pass: bool,
     pub hr_debug: bool,
+    pub ignored_start: usize,
+    pub ignored_end: usize,
+}
+
+impl Default for Config {
+    fn default() -> Config {
+        Config {
+            high_pass: true,
+            pli: true,
+            low_pass: true,
+            hr_debug: false,
+            ignored_start: 0,
+            ignored_end: 200,
+        }
+    }
 }
 
 pub struct Context {

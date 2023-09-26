@@ -18,15 +18,16 @@ pub struct Ekg {
 }
 
 impl Ekg {
-    fn load(bytes: Vec<u8>) -> Result<Self, ()> {
-        let version: u32 = u32::from_le_bytes(bytes[0..4].try_into().map_err(|err| {
-            log::warn!("Failed to read version: {}", err);
-            ()
-        })?);
+    fn load(bytes: Vec<u8>, config: &Config) -> Result<Self, ()> {
+        let version: u32 = u32::from_le_bytes(
+            bytes[0..4]
+                .try_into()
+                .map_err(|err| log::warn!("Failed to read version: {}", err))?,
+        );
         log::debug!("version: {}", version);
 
         match version {
-            0 => Self::load_v0(&bytes[4..]),
+            0 => Self::load_v0(&bytes[4..], config),
             _ => {
                 log::warn!("Unknown version: {}", version);
                 Err(())
@@ -34,7 +35,7 @@ impl Ekg {
         }
     }
 
-    fn load_v0(mut bytes: &[u8]) -> Result<Self, ()> {
+    fn load_v0(mut bytes: &[u8], config: &Config) -> Result<Self, ()> {
         pub const VOLTS_PER_LSB: f32 = -2.42 / (1 << 23) as f32; // ADS129x
 
         let mut reader = EkgFormat::new();
@@ -45,8 +46,8 @@ impl Ekg {
 
         log::debug!("Loaded {} samples", samples.len());
 
-        let ignore_start = 0;
-        let ignore_end = 200;
+        let ignore_start = config.ignored_start;
+        let ignore_end = config.ignored_end;
 
         Ok(Self {
             fs: 1000.0,
@@ -91,24 +92,30 @@ macro_rules! query {
 impl Data {
     pub fn load(path: &Path) -> Option<Self> {
         log::debug!("Loading {}", path.display());
+
+        let config = std::fs::read_to_string(path.with_extension("toml"))
+            .ok()
+            .map(|config| {
+                toml::from_str(&config).unwrap_or_else(|err| {
+                    log::warn!("Failed to parse config: {}", err);
+                    Config::default()
+                })
+            })
+            .unwrap_or_default();
+
         std::fs::read(path).ok().and_then(|bytes| {
-            let ekg = Ekg::load(bytes).ok()?;
-            Some(Self::new(path.to_owned(), ekg))
+            let ekg = Ekg::load(bytes, &config).ok()?;
+            Some(Self::new(path.to_owned(), ekg, config))
         })
     }
 
-    fn new(path: PathBuf, ekg: Ekg) -> Self {
+    fn new(path: PathBuf, ekg: Ekg, config: Config) -> Self {
         Self {
             path,
             processed: ProcessedSignal::new(),
             context: Context {
                 raw_ekg: ekg,
-                config: Config {
-                    high_pass: true,
-                    pli: true,
-                    low_pass: true,
-                    hr_debug: false,
-                },
+                config,
             },
         }
     }
