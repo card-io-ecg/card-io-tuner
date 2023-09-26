@@ -189,7 +189,7 @@ impl RemotePage {
     fn measurements(context: &AppContext, device: &str) -> RemotePage {
         log::info!("Getting measurements for {device}");
 
-        let response = context
+        let mut response = context
             .http_client
             .get(
                 context
@@ -201,6 +201,8 @@ impl RemotePage {
             .unwrap()
             .json::<RemoteMeasurementList>()
             .unwrap();
+
+        response.measurements.sort();
 
         Self::Measurements(
             device.to_string(),
