@@ -9,8 +9,10 @@ use signal_processing::compressing_buffer::EkgFormat;
 
 use crate::data::processing::{Config, Context, HrData, ProcessedSignal};
 
-mod cell;
 pub mod processing;
+
+mod cell;
+mod standard;
 
 #[derive(Clone)]
 pub struct Ekg {
@@ -97,10 +99,23 @@ impl Data {
             })
             .unwrap_or_default();
 
-        fs::read(path).ok().and_then(|bytes| {
-            let ekg = Ekg::load(bytes).ok()?;
-            Some(Self::new(path.to_owned(), ekg, config))
-        })
+        let ekg = match path.extension() {
+            Some(ext) if ext == "ecg" => {
+                fs::read(path).ok().and_then(|bytes| Ekg::load(bytes).ok())
+            }
+            Some(ext) if ext == "hea" && path.with_extension("dat").exists() => {
+                standard::load(path)
+            }
+            Some(ext) if ext == "dat" && path.with_extension("hea").exists() => {
+                standard::load(path)
+            }
+            _ => return None,
+        };
+
+        match ekg {
+            Some(ekg) if ekg.fs == 1000.0 => Some(Self::new(path.to_owned(), ekg, config)),
+            _ => None,
+        }
     }
 
     fn new(path: PathBuf, ekg: Ekg, config: Config) -> Self {
