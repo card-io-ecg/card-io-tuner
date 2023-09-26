@@ -259,6 +259,7 @@ impl SignalTab {
             .show_grid(true)
             .auto_bounds_y()
             .allow_scroll(false)
+            .boxed_zoom_pointer_button(PointerButton::Middle)
             .allow_zoom(AxisBools { x: false, y: true })
             .show(ui, |plot_ui| {
                 plot_ui.line(fft);
@@ -291,6 +292,7 @@ impl SignalTab {
             .include_y(max_rr + 100.0)
             .data_aspect(1.0)
             .allow_scroll(false)
+            .boxed_zoom_pointer_button(PointerButton::Middle)
             .show(ui, |plot_ui| {
                 plot_ui.points(
                     Points::new(rrs.map_windows(|[x, y]| [*x, *y]).collect::<PlotPoints>())
