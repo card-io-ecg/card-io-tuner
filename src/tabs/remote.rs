@@ -231,8 +231,13 @@ impl RemoteState {
             }
 
             Self::Authenticated(page) => {
-                ui.label("Logged in");
-                if ui.button("Log out").clicked() {
+                if ui
+                    .horizontal(|ui| {
+                        ui.label("Logged in");
+                        ui.button("Log out").clicked()
+                    })
+                    .inner
+                {
                     context.config.clear_auth_token();
                     *self = Self::Login(LoginData::new());
                     return;
