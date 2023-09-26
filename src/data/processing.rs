@@ -24,7 +24,7 @@ pub struct HrData {
     pub complex_lead: Vec<f32>,
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Copy, Deserialize, Serialize, PartialEq)]
 pub struct Config {
     pub high_pass: bool,
     pub pli: bool,
@@ -48,8 +48,8 @@ impl Default for Config {
 }
 
 pub struct Context {
-    pub raw_ekg: Ekg,
-    pub config: Config,
+    pub(super) raw_ekg: Ekg,
+    pub(super) config: Config,
 }
 
 pub struct ProcessedSignal {

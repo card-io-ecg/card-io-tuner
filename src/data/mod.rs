@@ -73,7 +73,7 @@ impl Cycle {
 pub struct Data {
     pub path: PathBuf,
     pub processed: ProcessedSignal,
-    pub context: Context,
+    context: Context,
 }
 
 macro_rules! query {
@@ -114,14 +114,11 @@ impl Data {
         }
     }
 
-    fn new(path: PathBuf, ekg: Ekg, config: Config) -> Self {
+    fn new(path: PathBuf, raw_ekg: Ekg, config: Config) -> Self {
         Self {
             path,
             processed: ProcessedSignal::new(),
-            context: Context {
-                raw_ekg: ekg,
-                config,
-            },
+            context: Context { raw_ekg, config },
         }
     }
 
@@ -143,10 +140,21 @@ impl Data {
         self.processed.clear();
     }
 
-    pub fn set_config(&mut self, config: Config) {
-        self.context.config = config;
+    pub fn config(&self) -> &Config {
+        &self.context.config
+    }
 
-        self.clear_processed();
+    pub fn change_config(&mut self, f: impl FnOnce(&mut Config)) {
+        let old = self.context.config;
+        f(&mut self.context.config);
+
+        if old != self.context.config {
+            self.clear_processed();
+        }
+    }
+
+    pub fn set_config(&mut self, config: Config) {
+        self.change_config(|c| *c = config);
     }
 
     pub fn load_config(&mut self) {

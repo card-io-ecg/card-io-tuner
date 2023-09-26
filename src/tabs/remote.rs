@@ -280,7 +280,7 @@ impl RemoteState {
                                     log::info!("Already downloaded {device}/{measurement}");
                                 }
 
-                                context.messages.push(AppMessage::LoadFile(file.clone()));
+                                context.send_message(AppMessage::LoadFile(file.clone()));
                             }
                         });
                     }

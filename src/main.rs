@@ -42,6 +42,11 @@ struct AppContext {
     http_client: Client,
     messages: Vec<AppMessage>,
 }
+impl AppContext {
+    pub fn send_message(&mut self, message: AppMessage) {
+        self.messages.push(message);
+    }
+}
 
 enum AppMessage {
     LoadFile(PathBuf),

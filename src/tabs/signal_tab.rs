@@ -170,7 +170,7 @@ impl SignalTab {
 
                 signals.push(ekg.iter().map(|y| *y as f64), EKG_COLOR, "EKG");
 
-                if data.context.config.hr_debug {
+                if data.config().hr_debug {
                     signals.push(
                         threshold.iter().map(|y| y.total().unwrap_or(y.r) as f64),
                         Color32::YELLOW,
@@ -239,11 +239,11 @@ impl SignalTab {
         let fft = {
             let fft = data.fft();
 
-            let x_scale = data.context.raw_ekg.fs / fft.len() as f64;
+            let x_scale = data.filtered_ekg().fs / fft.len() as f64;
 
             Line::new(
                 fft.iter()
-                    .skip(1 - data.context.config.high_pass as usize) // skip DC if high-pass is off
+                    .skip(1 - data.config().high_pass as usize) // skip DC if high-pass is off
                     .take(fft.len() / 2)
                     .enumerate()
                     .map(|(x, y)| [x as f64 * x_scale, *y as f64])
@@ -338,49 +338,37 @@ impl SignalTab {
     }
 
     fn signal_editor(ui: &mut Ui, data: &mut Data) {
-        let mut config_changed = false;
-
         ui.collapsing("Edit signal", |ui| {
             ui.horizontal(|ui| {
-                ui.vertical(|ui| {
-                    ui.heading("Trim");
+                data.change_config(|config| {
+                    ui.vertical(|ui| {
+                        ui.heading("Trim");
 
-                    Grid::new("trim").num_columns(2).show(ui, |ui| {
-                        ui.label("Start");
-                        config_changed |= ui
-                            .add(DragValue::new(&mut data.context.config.ignored_start).speed(1))
-                            .changed();
+                        Grid::new("trim").num_columns(2).show(ui, |ui| {
+                            ui.label("Start");
+                            ui.add(DragValue::new(&mut config.ignored_start).speed(1));
 
-                        ui.end_row();
+                            ui.end_row();
 
-                        ui.label("End");
-                        config_changed |= ui
-                            .add(DragValue::new(&mut data.context.config.ignored_end).speed(1))
-                            .changed();
+                            ui.label("End");
+                            ui.add(DragValue::new(&mut config.ignored_end).speed(1));
+                        });
                     });
-                });
 
-                ui.vertical(|ui| {
-                    ui.heading("Filter");
+                    ui.vertical(|ui| {
+                        ui.heading("Filter");
 
-                    config_changed |= ui
-                        .checkbox(&mut data.context.config.high_pass, "High-pass filter")
-                        .changed();
+                        ui.checkbox(&mut config.high_pass, "High-pass filter");
+                        ui.checkbox(&mut config.pli, "PLI filter");
+                        ui.checkbox(&mut config.low_pass, "Low-pass filter");
+                    });
 
-                    config_changed |= ui
-                        .checkbox(&mut data.context.config.pli, "PLI filter")
-                        .changed();
-
-                    config_changed |= ui
-                        .checkbox(&mut data.context.config.low_pass, "Low-pass filter")
-                        .changed();
-                });
-
-                #[cfg(feature = "debug")]
-                ui.vertical(|ui| {
-                    ui.heading("Debug");
-                    Grid::new("debug_opts").show(ui, |ui| {
-                        ui.checkbox(&mut data.context.config.hr_debug, "HR debug");
+                    #[cfg(feature = "debug")]
+                    ui.vertical(|ui| {
+                        ui.heading("Debug");
+                        Grid::new("debug_opts").show(ui, |ui| {
+                            ui.checkbox(&mut config.hr_debug, "HR debug");
+                        });
                     });
                 });
             });
@@ -399,10 +387,6 @@ impl SignalTab {
                 }
             });
         });
-
-        if config_changed {
-            data.clear_processed();
-        }
     }
 }
 
