@@ -245,6 +245,9 @@ impl RemoteState {
                 let mut new_page = None;
                 match page {
                     RemotePage::Devices(devices) => {
+                        if ui.button("Reload").clicked() {
+                            new_page = Some(RemotePage::new(context));
+                        }
                         ui.vertical(|ui| {
                             for device in &devices.devices {
                                 if ui.add(clickable_label(device)).clicked() {
@@ -255,6 +258,9 @@ impl RemoteState {
                         });
                     }
                     RemotePage::Measurements(device, measurements) => {
+                        if ui.button("Reload").clicked() {
+                            new_page = Some(RemotePage::measurements(context, &device));
+                        }
                         ui.vertical(|ui| {
                             for (measurement, file) in &measurements.measurements {
                                 if !ui.add(clickable_label(measurement)).clicked() {
