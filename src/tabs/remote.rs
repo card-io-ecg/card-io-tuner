@@ -280,12 +280,17 @@ impl RemoteState {
 
                                         let result = rfd::MessageDialog::new()
                                             .set_description(message)
-                                            .set_buttons(rfd::MessageButtons::YesNo)
+                                            .set_buttons(rfd::MessageButtons::OkCancelCustom(
+                                                "Delete".to_string(),
+                                                "Don't delete".to_string(),
+                                            ))
                                             .set_level(rfd::MessageLevel::Info)
                                             .set_title("Delete measurement")
                                             .show();
 
-                                        if result == MessageDialogResult::Yes {
+                                        if result
+                                            == MessageDialogResult::Custom("Delete".to_string())
+                                        {
                                             context
                                                 .http_client
                                                 .delete(context.config.backend_url(format!(
