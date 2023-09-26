@@ -288,23 +288,24 @@ impl RemoteState {
                                             .set_title("Delete measurement")
                                             .show();
 
-                                        if result
-                                            == MessageDialogResult::Custom("Delete".to_string())
-                                        {
-                                            context
-                                                .http_client
-                                                .delete(context.config.backend_url(format!(
-                                                    "measurements/{device}/{measurement}"
-                                                )))
-                                                .header(
-                                                    "Authorization",
-                                                    context.config.auth_token.header(),
-                                                )
-                                                .send()
-                                                .unwrap();
+                                        if let MessageDialogResult::Custom(val) = result {
+                                            if val == "Delete" {
+                                                context
+                                                    .http_client
+                                                    .delete(context.config.backend_url(format!(
+                                                        "measurements/{device}/{measurement}"
+                                                    )))
+                                                    .header(
+                                                        "Authorization",
+                                                        context.config.auth_token.header(),
+                                                    )
+                                                    .send()
+                                                    .unwrap();
 
-                                            new_page =
-                                                Some(RemotePage::measurements(context, &device));
+                                                new_page = Some(RemotePage::measurements(
+                                                    context, &device,
+                                                ));
+                                            }
                                         }
                                     }
 
