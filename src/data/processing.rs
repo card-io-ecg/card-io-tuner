@@ -94,7 +94,14 @@ impl ProcessedSignal {
     pub fn filtered_ekg(&self, context: &Context) -> Ref<'_, Ekg> {
         self.filtered_ekg.get(|| {
             log::debug!("Data::filtered_ekg");
-            let mut samples = context.raw_ekg.samples.to_vec();
+
+            let ignore_start = context.config.ignored_start;
+            let ignore_end = context.config.ignored_end;
+
+            let sample_count = context.raw_ekg.samples.len();
+
+            let mut samples =
+                context.raw_ekg.samples[ignore_start..sample_count - ignore_end].to_vec();
 
             if context.config.pli {
                 apply_filter(

@@ -1,5 +1,6 @@
 use std::{
     cell::Ref,
+    fs,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -18,7 +19,7 @@ pub struct Ekg {
 }
 
 impl Ekg {
-    fn load(bytes: Vec<u8>, config: &Config) -> Result<Self, ()> {
+    fn load(bytes: Vec<u8>) -> Result<Self, ()> {
         let version: u32 = u32::from_le_bytes(
             bytes[0..4]
                 .try_into()
@@ -27,7 +28,7 @@ impl Ekg {
         log::debug!("version: {}", version);
 
         match version {
-            0 => Self::load_v0(&bytes[4..], config),
+            0 => Self::load_v0(&bytes[4..]),
             _ => {
                 log::warn!("Unknown version: {}", version);
                 Err(())
@@ -35,7 +36,7 @@ impl Ekg {
         }
     }
 
-    fn load_v0(mut bytes: &[u8], config: &Config) -> Result<Self, ()> {
+    fn load_v0(mut bytes: &[u8]) -> Result<Self, ()> {
         pub const VOLTS_PER_LSB: f32 = -2.42 / (1 << 23) as f32; // ADS129x
 
         let mut reader = EkgFormat::new();
@@ -46,16 +47,9 @@ impl Ekg {
 
         log::debug!("Loaded {} samples", samples.len());
 
-        let ignore_start = config.ignored_start;
-        let ignore_end = config.ignored_end;
-
         Ok(Self {
             fs: 1000.0,
-            samples: Arc::from(
-                samples
-                    .get(ignore_start..samples.len() - ignore_end)
-                    .ok_or(())?,
-            ),
+            samples: Arc::from(samples),
         })
     }
 }
@@ -93,7 +87,7 @@ impl Data {
     pub fn load(path: &Path) -> Option<Self> {
         log::debug!("Loading {}", path.display());
 
-        let config = std::fs::read_to_string(path.with_extension("toml"))
+        let config = fs::read_to_string(path.with_extension("toml"))
             .ok()
             .map(|config| {
                 toml::from_str(&config).unwrap_or_else(|err| {
@@ -103,8 +97,8 @@ impl Data {
             })
             .unwrap_or_default();
 
-        std::fs::read(path).ok().and_then(|bytes| {
-            let ekg = Ekg::load(bytes, &config).ok()?;
+        fs::read(path).ok().and_then(|bytes| {
+            let ekg = Ekg::load(bytes).ok()?;
             Some(Self::new(path.to_owned(), ekg, config))
         })
     }
