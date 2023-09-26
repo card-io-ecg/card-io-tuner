@@ -18,3 +18,7 @@ serde_json = "1.0.107"
 signal-processing = { git = "https://github.com/card-io-ecg/card-io-fw.git" }
 # signal-processing = { path = "../card-io-fw/signal-processing" }
 toml = "0.8.0"
+
+[features]
+default = ["debug"]
+debug = []

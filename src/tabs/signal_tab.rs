@@ -61,33 +61,6 @@ impl SignalCharts<'_> {
     }
 }
 
-fn filter_menu(ui: &mut Ui, data: &mut Data) {
-    Grid::new("filter_opts").show(ui, |ui| {
-        if ui
-            .checkbox(&mut data.context.config.high_pass, "High-pass filter")
-            .changed()
-        {
-            data.clear_processed();
-        }
-
-        if ui
-            .checkbox(&mut data.context.config.pli, "PLI filter")
-            .changed()
-        {
-            data.clear_processed();
-        }
-
-        if ui
-            .checkbox(&mut data.context.config.low_pass, "Low-pass filter")
-            .changed()
-        {
-            data.clear_processed();
-        }
-
-        ui.checkbox(&mut data.context.config.hr_debug, "HR debug");
-    });
-}
-
 fn generate_grid_marks(input: GridInput, scale: f64, steps: &[i32]) -> Vec<GridMark> {
     let mut marks = vec![];
 
@@ -365,33 +338,51 @@ impl SignalTab {
     }
 
     fn signal_editor(ui: &mut Ui, data: &mut Data) {
+        let mut config_changed = false;
+
         ui.collapsing("Edit signal", |ui| {
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
-                    ui.heading("Trim signal");
+                    ui.heading("Trim");
 
                     Grid::new("trim").num_columns(2).show(ui, |ui| {
                         ui.label("Start");
-                        if ui
+                        config_changed |= ui
                             .add(DragValue::new(&mut data.context.config.ignored_start).speed(1))
-                            .changed()
-                        {
-                            data.clear_processed();
-                        }
+                            .changed();
 
                         ui.end_row();
 
                         ui.label("End");
-                        if ui
+                        config_changed |= ui
                             .add(DragValue::new(&mut data.context.config.ignored_end).speed(1))
-                            .changed()
-                        {
-                            data.clear_processed();
-                        }
+                            .changed();
                     });
                 });
 
-                filter_menu(ui, data);
+                ui.vertical(|ui| {
+                    ui.heading("Filter");
+
+                    config_changed |= ui
+                        .checkbox(&mut data.context.config.high_pass, "High-pass filter")
+                        .changed();
+
+                    config_changed |= ui
+                        .checkbox(&mut data.context.config.pli, "PLI filter")
+                        .changed();
+
+                    config_changed |= ui
+                        .checkbox(&mut data.context.config.low_pass, "Low-pass filter")
+                        .changed();
+                });
+
+                #[cfg(feature = "debug")]
+                ui.vertical(|ui| {
+                    ui.heading("Debug");
+                    Grid::new("debug_opts").show(ui, |ui| {
+                        ui.checkbox(&mut data.context.config.hr_debug, "HR debug");
+                    });
+                });
             });
 
             ui.horizontal(|ui| {
@@ -408,6 +399,10 @@ impl SignalTab {
                 }
             });
         });
+
+        if config_changed {
+            data.clear_processed();
+        }
     }
 }
 
