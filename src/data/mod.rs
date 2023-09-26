@@ -89,15 +89,7 @@ impl Data {
     pub fn load(path: &Path) -> Option<Self> {
         log::debug!("Loading {}", path.display());
 
-        let config = fs::read_to_string(path.with_extension("toml"))
-            .ok()
-            .map(|config| {
-                toml::from_str(&config).unwrap_or_else(|err| {
-                    log::warn!("Failed to parse config: {}", err);
-                    Config::default()
-                })
-            })
-            .unwrap_or_default();
+        let config = Config::default();
 
         let ekg = match path.extension() {
             Some(ext) if ext == "ecg" => {
@@ -113,7 +105,11 @@ impl Data {
         };
 
         match ekg {
-            Some(ekg) if ekg.fs == 1000.0 => Some(Self::new(path.to_owned(), ekg, config)),
+            Some(ekg) if ekg.fs == 1000.0 => {
+                let mut this = Self::new(path.to_owned(), ekg, config);
+                this.load_config();
+                Some(this)
+            }
             _ => None,
         }
     }
@@ -145,5 +141,30 @@ impl Data {
 
     pub fn clear_processed(&mut self) {
         self.processed.clear();
+    }
+
+    pub fn set_config(&mut self, config: Config) {
+        self.context.config = config;
+
+        self.clear_processed();
+    }
+
+    pub fn load_config(&mut self) {
+        self.set_config(
+            fs::read_to_string(self.path.with_extension("toml"))
+                .ok()
+                .map(|config| {
+                    toml::from_str(&config).unwrap_or_else(|err| {
+                        log::warn!("Failed to parse config: {}", err);
+                        Config::default()
+                    })
+                })
+                .unwrap_or_default(),
+        );
+    }
+
+    pub fn save_config(&self) {
+        let config = toml::to_string_pretty(&self.context.config).unwrap();
+        _ = fs::write(self.path.with_extension("toml"), config);
     }
 }

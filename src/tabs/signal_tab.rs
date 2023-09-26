@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use eframe::{
-    egui::{self, PointerButton, Ui},
+    egui::{DragValue, Grid, PointerButton, Ui},
     epaint::Color32,
 };
 use egui_plot::{AxisBools, GridInput, GridMark, Legend, Line, MarkerShape, PlotPoints, Points};
@@ -62,7 +62,7 @@ impl SignalCharts<'_> {
 }
 
 fn filter_menu(ui: &mut Ui, data: &mut Data) {
-    egui::Grid::new("filter_opts").show(ui, |ui| {
+    Grid::new("filter_opts").show(ui, |ui| {
         if ui
             .checkbox(&mut data.context.config.high_pass, "High-pass filter")
             .changed()
@@ -136,10 +136,6 @@ impl SignalTab {
     }
 
     fn ekg_tab(ui: &mut Ui, data: &mut Data) {
-        Self::plot_signal(ui, data);
-    }
-
-    fn plot_signal(ui: &mut egui::Ui, data: &mut Data) {
         let mut lines = vec![];
         let mut points = vec![];
 
@@ -263,9 +259,7 @@ impl SignalTab {
                 for points in points {
                     plot_ui.points(points);
                 }
-            })
-            .response
-            .context_menu(|ui| filter_menu(ui, data));
+            });
     }
 
     fn fft_tab(ui: &mut Ui, data: &mut Data) {
@@ -295,9 +289,7 @@ impl SignalTab {
             .allow_zoom(AxisBools { x: false, y: true })
             .show(ui, |plot_ui| {
                 plot_ui.line(fft);
-            })
-            .response
-            .context_menu(|ui| filter_menu(ui, data));
+            });
     }
 
     fn hrv_tab(ui: &mut Ui, data: &mut Data) {
@@ -371,6 +363,52 @@ impl SignalTab {
                 }
             });
     }
+
+    fn signal_editor(ui: &mut Ui, data: &mut Data) {
+        ui.collapsing("Edit signal", |ui| {
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.heading("Trim signal");
+
+                    Grid::new("trim").num_columns(2).show(ui, |ui| {
+                        ui.label("Start");
+                        if ui
+                            .add(DragValue::new(&mut data.context.config.ignored_start).speed(1))
+                            .changed()
+                        {
+                            data.clear_processed();
+                        }
+
+                        ui.end_row();
+
+                        ui.label("End");
+                        if ui
+                            .add(DragValue::new(&mut data.context.config.ignored_end).speed(1))
+                            .changed()
+                        {
+                            data.clear_processed();
+                        }
+                    });
+                });
+
+                filter_menu(ui, data);
+            });
+
+            ui.horizontal(|ui| {
+                if ui.button("Default").clicked() {
+                    data.set_config(Default::default());
+                }
+
+                if ui.button("Reload").clicked() {
+                    data.load_config();
+                }
+
+                if ui.button("Save").clicked() {
+                    data.save_config();
+                }
+            });
+        });
+    }
 }
 
 impl AppTab for SignalTab {
@@ -393,6 +431,8 @@ impl AppTab for SignalTab {
             ui.selectable_value(&mut self.active_tab, Tab::HRV, "HRV");
             ui.selectable_value(&mut self.active_tab, Tab::Cycle, "Cycle info");
         });
+
+        Self::signal_editor(ui, &mut self.data);
 
         match self.active_tab {
             Tab::EKG => Self::ekg_tab(ui, &mut self.data),

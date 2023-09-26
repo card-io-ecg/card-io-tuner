@@ -82,6 +82,7 @@ impl ProcessedSignal {
     }
 
     pub fn clear(&mut self) {
+        self.raw_ekg.clear();
         self.filtered_ekg.clear();
         self.fft.clear();
         self.hrs.clear();
@@ -95,6 +96,7 @@ impl ProcessedSignal {
 
     pub fn raw_ekg(&self, context: &Context) -> Ref<'_, Ekg> {
         self.raw_ekg.get(|| {
+            log::debug!("Data::raw_ekg");
             let ignore_start = context.config.ignored_start;
             let ignore_end = context.config.ignored_end;
 
