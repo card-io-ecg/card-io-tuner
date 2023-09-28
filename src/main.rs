@@ -16,6 +16,7 @@ mod analysis;
 mod app_config;
 mod data;
 mod tabs;
+mod ui;
 
 fn main() -> Result<(), eframe::Error> {
     env::set_var("RUST_LOG", "card_io_tuner=debug");
