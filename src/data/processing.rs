@@ -295,10 +295,14 @@ impl ProcessedSignal {
 
             let all_average = average_cycle(all_cycles.clone());
 
+            // For QRS adjustment, we're using the 50-50 ms window around the peak of the QRS
+            let avg_qrs_width = fs.ms_to_samples(25.0);
             let mut max = f32::NEG_INFINITY;
             let max_pos = all_average
                 .iter()
                 .enumerate()
+                .skip(avg_qrs_width)
+                .take(all_average.len() - 2 * avg_qrs_width)
                 .filter_map(|(idx, y)| {
                     if *y > max {
                         max = *y;
@@ -310,8 +314,6 @@ impl ProcessedSignal {
                 .last()
                 .unwrap();
 
-            // For QRS adjustment, we're using the 50-50 ms window around the peak of the QRS
-            let avg_qrs_width = fs.ms_to_samples(25.0);
             let avg_qrs = &all_average[max_pos - avg_qrs_width..][..2 * avg_qrs_width];
 
             let avg_max_offset = max_pos as isize - pre as isize;
