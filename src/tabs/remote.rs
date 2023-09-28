@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use eframe::egui::{self, Label, ScrollArea, Sense, TextEdit, Ui, Widget};
+use eframe::egui::{self, Grid, Label, ScrollArea, Sense, TextEdit, Ui, Widget};
 use rfd::MessageDialogResult;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -257,13 +257,22 @@ impl RemoteState {
                             ScrollArea::vertical()
                                 .auto_shrink([false; 2])
                                 .show_viewport(ui, |ui, _viewport| {
-                                    for device in &devices.devices {
-                                        if ui.add(clickable_label(device)).clicked() {
-                                            new_page =
-                                                Some(RemotePage::measurements(context, &device));
-                                            break;
-                                        }
-                                    }
+                                    Grid::new("devices").num_columns(1).striped(true).show(
+                                        ui,
+                                        |ui| {
+                                            for device in &devices.devices {
+                                                ui.horizontal(|ui| {
+                                                    ui.set_width(ui.available_width());
+                                                    if ui.add(clickable_label(device)).clicked() {
+                                                        new_page = Some(RemotePage::measurements(
+                                                            context, &device,
+                                                        ));
+                                                    }
+                                                });
+                                                ui.end_row();
+                                            }
+                                        },
+                                    );
                                 });
                         });
                     }
@@ -283,80 +292,88 @@ impl RemoteState {
                             ScrollArea::vertical()
                                 .auto_shrink([false; 2])
                                 .show_viewport(ui, |ui, _viewport| {
-                                    for (measurement, file) in &measurements.measurements {
-                                        ui.horizontal(|ui| {
-                                            if ui.button("🗑").clicked() {
-                                                let message = format!("Are you sure you want to delete {measurement}?\nThis will remove the measurement from the cloud but it will not delete the local copy.");
-
-                                                let result = rfd::MessageDialog::new()
-                                                    .set_description(message)
-                                                    .set_buttons(
-                                                        rfd::MessageButtons::OkCancelCustom(
-                                                            "Delete".to_string(),
-                                                            "Don't delete".to_string(),
-                                                        ),
-                                                    )
-                                                    .set_level(rfd::MessageLevel::Info)
-                                                    .set_title("Delete measurement")
-                                                    .show();
-
-                                                if let MessageDialogResult::Custom(val) = result {
-                                                    if val == "Delete" {
-                                                        let url = context
-                                                            .config
-                                                            .backend_url(format!(
-                                                            "measurements/{device}/{measurement}"
-                                                        ));
-                                                        context
-                                                            .http_client
-                                                            .delete(url)
-                                                            .header(
-                                                                "Authorization",
-                                                                context.config.auth_token.header(),
+                                    Grid::new("measurements").num_columns(1).striped(true).show(
+                                        ui,
+                                        |ui| {
+                                            for (measurement, file) in &measurements.measurements {
+                                                ui.horizontal(|ui| {
+                                                    ui.set_width(ui.available_width());
+                                                
+                                                    if ui.button("🗑").clicked() {
+                                                        let message = format!("Are you sure you want to delete {measurement}?\nThis will remove the measurement from the cloud but it will not delete the local copy.");
+        
+                                                        let result = rfd::MessageDialog::new()
+                                                            .set_description(message)
+                                                            .set_buttons(
+                                                                rfd::MessageButtons::OkCancelCustom(
+                                                                    "Delete".to_string(),
+                                                                    "Don't delete".to_string(),
+                                                                ),
                                                             )
-                                                            .send()
-                                                            .unwrap();
-
-                                                        new_page = Some(RemotePage::measurements(
-                                                            context, &device,
+                                                            .set_level(rfd::MessageLevel::Info)
+                                                            .set_title("Delete measurement")
+                                                            .show();
+        
+                                                        if let MessageDialogResult::Custom(val) = result {
+                                                            if val == "Delete" {
+                                                                let url = context
+                                                                    .config
+                                                                    .backend_url(format!(
+                                                                    "measurements/{device}/{measurement}"
+                                                                ));
+                                                                context
+                                                                    .http_client
+                                                                    .delete(url)
+                                                                    .header(
+                                                                        "Authorization",
+                                                                        context.config.auth_token.header(),
+                                                                    )
+                                                                    .send()
+                                                                    .unwrap();
+        
+                                                                new_page = Some(RemotePage::measurements(
+                                                                    context, &device,
+                                                                ));
+                                                            }
+                                                        }
+                                                    }
+        
+                                                    if ui.add(clickable_label(measurement)).clicked() {
+                                                        let exists = Path::new(&file).exists();
+                                                        if exists {
+                                                            log::info!(
+                                                                "Already downloaded {device}/{measurement}"
+                                                            );
+                                                        } else {
+                                                            log::info!(
+                                                                "Downloading {device}/{measurement}"
+                                                            );
+                                                            let ekg = context
+                                                                .http_client
+                                                                .get(context.config.backend_url(format!(
+                                                                    "measurements/{device}/{measurement}"
+                                                                )))
+                                                                .header(
+                                                                    "Authorization",
+                                                                    context.config.auth_token.header(),
+                                                                )
+                                                                .send()
+                                                                .unwrap()
+                                                                .bytes()
+                                                                .unwrap();
+                                                            _ = fs::create_dir_all(file.parent().unwrap());
+                                                            fs::write(&file, ekg.as_ref()).unwrap();
+                                                        }
+        
+                                                        context.send_message(AppMessage::LoadFile(
+                                                            file.clone(),
                                                         ));
                                                     }
-                                                }
+                                                    ui.end_row();
+                                                });
                                             }
-
-                                            if ui.add(clickable_label(measurement)).clicked() {
-                                                let exists = Path::new(&file).exists();
-                                                if exists {
-                                                    log::info!(
-                                                        "Already downloaded {device}/{measurement}"
-                                                    );
-                                                } else {
-                                                    log::info!(
-                                                        "Downloading {device}/{measurement}"
-                                                    );
-                                                    let ekg = context
-                                                        .http_client
-                                                        .get(context.config.backend_url(format!(
-                                                            "measurements/{device}/{measurement}"
-                                                        )))
-                                                        .header(
-                                                            "Authorization",
-                                                            context.config.auth_token.header(),
-                                                        )
-                                                        .send()
-                                                        .unwrap()
-                                                        .bytes()
-                                                        .unwrap();
-                                                    _ = fs::create_dir_all(file.parent().unwrap());
-                                                    fs::write(&file, ekg.as_ref()).unwrap();
-                                                }
-
-                                                context.send_message(AppMessage::LoadFile(
-                                                    file.clone(),
-                                                ));
-                                            }
-                                        });
-                                    }
+                                        },
+                                    );
                                 });
                         });
                     }
