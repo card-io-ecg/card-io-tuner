@@ -108,7 +108,7 @@ impl SignalTab {
         })
     }
 
-    fn ekg_tab(ui: &mut Ui, data: &mut Data) {
+    fn ekg_tab(&mut self, ui: &mut Ui) {
         let mut lines = vec![];
         let mut points = vec![];
 
@@ -117,11 +117,11 @@ impl SignalTab {
         let mut marker_added = false;
 
         {
-            let hr_data = data.hrs();
-            let ekg_data = data.filtered_ekg();
-            let adjusted_cycles = data.adjusted_cycles();
+            let hr_data = self.data.hrs();
+            let ekg_data = self.data.filtered_ekg();
+            let adjusted_cycles = self.data.adjusted_cycles();
 
-            let chunk = data.config().row_width.max(1);
+            let chunk = self.data.config().row_width.max(1);
 
             let ekg = ekg_data.samples.chunks(chunk);
             let threshold = hr_data.thresholds.chunks(chunk);
@@ -172,7 +172,7 @@ impl SignalTab {
 
                 signals.push(ekg.iter().map(|y| *y as f64), EKG_COLOR, "EKG");
 
-                if data.config().hr_debug {
+                if self.data.config().hr_debug {
                     signals.push(
                         threshold.iter().map(|y| y.total().unwrap_or(y.r) as f64),
                         Color32::YELLOW,
@@ -211,14 +211,14 @@ impl SignalTab {
                         .map(|cycle| cycle.position)
                         .map(|idx| (idx, ekg_data.samples[idx] as f64)),
                     Color32::LIGHT_GREEN,
-                    format!("HR: {}", data.avg_hr().round() as i32),
+                    format!("HR: {}", self.data.avg_hr().round() as i32),
                 );
 
                 idx += ekg.len();
             }
         }
 
-        egui_plot::Plot::new("ekg")
+        egui_plot::Plot::new((&self.label, "ekg"))
             .legend(Legend::default())
             .show_axes(false)
             .show_grid(true)
@@ -237,15 +237,15 @@ impl SignalTab {
             });
     }
 
-    fn fft_tab(ui: &mut Ui, data: &mut Data) {
+    fn fft_tab(&mut self, ui: &mut Ui) {
         let fft = {
-            let fft = data.fft();
+            let fft = self.data.fft();
 
-            let x_scale = data.filtered_ekg().fs / fft.len() as f64;
+            let x_scale = self.data.filtered_ekg().fs / fft.len() as f64;
 
             Line::new(
                 fft.iter()
-                    .skip(1 - data.config().high_pass as usize) // skip DC if high-pass is off
+                    .skip(1 - self.data.config().high_pass as usize) // skip DC if high-pass is off
                     .take(fft.len() / 2)
                     .enumerate()
                     .map(|(x, y)| [x as f64 * x_scale, *y as f64])
@@ -255,7 +255,7 @@ impl SignalTab {
             .name("FFT")
         };
 
-        egui_plot::Plot::new("fft")
+        egui_plot::Plot::new((&self.label, "fft"))
             .legend(Legend::default())
             .show_axes(false)
             .show_grid(true)
@@ -268,9 +268,9 @@ impl SignalTab {
             });
     }
 
-    fn hrv_tab(ui: &mut Ui, data: &mut Data) {
-        let fs = data.filtered_ekg().fs;
-        let hr_data = data.adjusted_cycles();
+    fn hrv_tab(&mut self, ui: &mut Ui) {
+        let fs = self.data.filtered_ekg().fs;
+        let hr_data = self.data.adjusted_cycles();
 
         // Poincare plot to visualize heart-rate variability
         let rrs = hr_data
@@ -284,7 +284,7 @@ impl SignalTab {
                 (min.min(y), max.max(y))
             });
 
-        egui_plot::Plot::new("hrv")
+        egui_plot::Plot::new((&self.label, "hrv"))
             .legend(Legend::default())
             .show_axes(true)
             .show_grid(true)
@@ -303,10 +303,10 @@ impl SignalTab {
             });
     }
 
-    fn cycle_tab(ui: &mut Ui, data: &mut Data) {
+    fn cycle_tab(&mut self, ui: &mut Ui) {
         let mut lines = vec![];
 
-        let fs = data.filtered_ekg().fs;
+        let fs = self.data.filtered_ekg().fs;
         let mut add_cycle = |cycle: &Cycle, name: &str, color: Color32| {
             lines.push(
                 Line::new(
@@ -323,9 +323,9 @@ impl SignalTab {
         };
 
         // add_cycle(&data.average_cycle(), "Average cycle", Color32::LIGHT_RED);
-        add_cycle(&data.majority_cycle(), "Majority cycle", EKG_COLOR);
+        add_cycle(&self.data.majority_cycle(), "Majority cycle", EKG_COLOR);
 
-        egui_plot::Plot::new("cycle")
+        egui_plot::Plot::new((&self.label, "cycle"))
             .legend(Legend::default())
             .show_axes(false)
             .show_grid(true)
@@ -341,27 +341,29 @@ impl SignalTab {
             });
     }
 
-    fn signal_editor(ui: &mut Ui, data: &mut Data) {
+    fn signal_editor(&mut self, ui: &mut Ui) {
         ui.collapsing("Edit signal", |ui| {
             ui.horizontal(|ui| {
-                data.change_config(|config| {
+                self.data.change_config(|config| {
                     ui.vertical(|ui| {
                         ui.heading("Trim");
 
-                        Grid::new("trim").num_columns(2).show(ui, |ui| {
-                            ui.label("Start");
-                            ui.add(DragValue::new(&mut config.ignored_start).speed(1));
+                        Grid::new((&self.label, "trim"))
+                            .num_columns(2)
+                            .show(ui, |ui| {
+                                ui.label("Start");
+                                ui.add(DragValue::new(&mut config.ignored_start).speed(1));
 
-                            ui.end_row();
+                                ui.end_row();
 
-                            ui.label("End");
-                            ui.add(DragValue::new(&mut config.ignored_end).speed(1));
+                                ui.label("End");
+                                ui.add(DragValue::new(&mut config.ignored_end).speed(1));
 
-                            ui.end_row();
+                                ui.end_row();
 
-                            ui.label("Row");
-                            ui.add(DragValue::new(&mut config.row_width).speed(1));
-                        });
+                                ui.label("Row");
+                                ui.add(DragValue::new(&mut config.row_width).speed(1));
+                            });
                     });
 
                     ui.vertical(|ui| {
@@ -375,7 +377,7 @@ impl SignalTab {
                     #[cfg(feature = "debug")]
                     ui.vertical(|ui| {
                         ui.heading("Debug");
-                        Grid::new("debug_opts").show(ui, |ui| {
+                        Grid::new((&self.label, "debug_opts")).show(ui, |ui| {
                             ui.checkbox(&mut config.hr_debug, "HR debug");
                         });
                     });
@@ -384,15 +386,15 @@ impl SignalTab {
 
             ui.horizontal(|ui| {
                 if ui.button("Default").clicked() {
-                    data.set_config(Default::default());
+                    self.data.set_config(Default::default());
                 }
 
                 if ui.button("Reload").clicked() {
-                    data.load_config();
+                    self.data.load_config();
                 }
 
                 if ui.button("Save").clicked() {
-                    data.save_config();
+                    self.data.save_config();
                 }
             });
         });
@@ -420,13 +422,13 @@ impl AppTab for SignalTab {
             ui.selectable_value(&mut self.active_tab, Tab::Cycle, "Cycle info");
         });
 
-        Self::signal_editor(ui, &mut self.data);
+        self.signal_editor(ui);
 
         match self.active_tab {
-            Tab::EKG => Self::ekg_tab(ui, &mut self.data),
-            Tab::FFT => Self::fft_tab(ui, &mut self.data),
-            Tab::HRV => Self::hrv_tab(ui, &mut self.data),
-            Tab::Cycle => Self::cycle_tab(ui, &mut self.data),
+            Tab::EKG => self.ekg_tab(ui),
+            Tab::FFT => self.fft_tab(ui),
+            Tab::HRV => self.hrv_tab(ui),
+            Tab::Cycle => self.cycle_tab(ui),
         }
 
         close
