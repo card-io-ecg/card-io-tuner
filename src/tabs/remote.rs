@@ -1,5 +1,6 @@
 use std::{
     fs,
+    hash::Hash,
     io::Read,
     path::{Path, PathBuf},
 };
@@ -159,6 +160,30 @@ struct DeviceList {
     pub devices: Vec<String>,
 }
 
+impl DeviceList {
+    fn ui(&self, ui: &mut Ui, context: &mut AppContext) -> Option<RemotePage> {
+        if ui.button("Reload").clicked() {
+            return Some(RemotePage::new(context));
+        }
+
+        let mut new_page = None;
+        ui.vertical(|ui| {
+            ui.heading("Your devices");
+
+            vertical_list("devices", ui, &self.devices, |ui, device| {
+                ui.horizontal(|ui| {
+                    ui.set_width(ui.available_width());
+                    if ui.add(clickable_label(device)).clicked() {
+                        new_page = Some(RemotePage::measurements(context, device));
+                    }
+                });
+            });
+        });
+
+        new_page
+    }
+}
+
 #[derive(serde::Deserialize)]
 struct RemoteMeasurementList {
     pub measurements: Vec<String>,
@@ -167,6 +192,135 @@ struct RemoteMeasurementList {
 #[derive(serde::Deserialize)]
 struct MeasurementList {
     pub measurements: Vec<(String, PathBuf)>,
+}
+impl MeasurementList {
+    fn ui(&self, ui: &mut Ui, context: &mut AppContext, device: &str) -> Option<RemotePage> {
+        if let Some(page) = ui
+            .horizontal(|ui| {
+                if ui.button("Reload").clicked() {
+                    return Some(RemotePage::measurements(context, &device));
+                }
+                if ui.button("Back").clicked() {
+                    return Some(RemotePage::new(context));
+                }
+
+                None
+            })
+            .inner
+        {
+            return Some(page);
+        }
+
+        let mut new_page = None;
+        ui.vertical(|ui| {
+            ui.heading(format!("Measurements of {device}"));
+
+            vertical_list(
+                "measurements",
+                ui,
+                &self.measurements,
+                |ui, (measurement, file)| {
+                    ui.horizontal(|ui| {
+                        ui.set_width(ui.available_width());
+
+                        if ui.button("🗑").clicked() {
+                            let message = format!(
+                                r#"Are you sure you want to delete {measurement}?
+This will remove the measurement from the cloud but it will not delete the local copy."#
+                            );
+
+                            if confirm("Delete measurement", message, "Delete", "Don't delete") {
+                                delete_remote_file(&device, &measurement, context);
+
+                                new_page = Some(RemotePage::measurements(context, &device));
+                            }
+                        }
+
+                        if ui.add(clickable_label(measurement)).clicked() {
+                            open_remote_file(&device, &measurement, &file, context);
+                        }
+                    });
+                },
+            );
+        });
+
+        new_page
+    }
+}
+
+fn vertical_list<'a, E: 'a>(
+    id: impl Hash,
+    ui: &mut Ui,
+    list: impl IntoIterator<Item = &'a E> + 'a,
+    mut element: impl FnMut(&mut Ui, &'a E),
+) {
+    ScrollArea::vertical()
+        .auto_shrink([false; 2])
+        .show_viewport(ui, |ui, _viewport| {
+            Grid::new(id).num_columns(1).striped(true).show(ui, |ui| {
+                for e in list.into_iter() {
+                    element(ui, e);
+                    ui.end_row();
+                }
+            });
+        });
+}
+
+fn confirm(title: &str, message: String, yes: &str, no: &str) -> bool {
+    let result = rfd::MessageDialog::new()
+        .set_description(message)
+        .set_buttons(rfd::MessageButtons::OkCancelCustom(
+            yes.to_string(),
+            no.to_string(),
+        ))
+        .set_level(rfd::MessageLevel::Info)
+        .set_title(title)
+        .show();
+
+    if let MessageDialogResult::Custom(val) = result {
+        if val == yes {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn delete_remote_file(device: &str, measurement: &str, context: &mut AppContext) {
+    let url = context
+        .config
+        .backend_url(format!("measurements/{device}/{measurement}"));
+    context
+        .http_client
+        .delete(url)
+        .header("Authorization", context.config.auth_token.header())
+        .send()
+        .unwrap();
+}
+
+fn open_remote_file(device: &str, measurement: &str, file: &Path, context: &mut AppContext) {
+    let exists = Path::new(file).exists();
+    if exists {
+        log::info!("Already downloaded {device}/{measurement}");
+    } else {
+        log::info!("Downloading {device}/{measurement}");
+        let ekg = context
+            .http_client
+            .get(
+                context
+                    .config
+                    .backend_url(format!("measurements/{device}/{measurement}")),
+            )
+            .header("Authorization", context.config.auth_token.header())
+            .send()
+            .unwrap()
+            .bytes()
+            .unwrap();
+        _ = fs::create_dir_all(file.parent().unwrap());
+        fs::write(file, ekg.as_ref()).unwrap();
+    }
+
+    context.send_message(AppMessage::LoadFile(file.to_owned()));
 }
 
 enum RemotePage {
@@ -248,134 +402,14 @@ impl RemoteState {
                 let mut new_page = None;
                 match page {
                     RemotePage::Devices(devices) => {
-                        if ui.button("Reload").clicked() {
-                            new_page = Some(RemotePage::new(context));
+                        if let Some(page) = devices.ui(ui, context) {
+                            new_page = Some(page);
                         }
-                        ui.vertical(|ui| {
-                            ui.heading("Your devices");
-
-                            ScrollArea::vertical()
-                                .auto_shrink([false; 2])
-                                .show_viewport(ui, |ui, _viewport| {
-                                    Grid::new("devices").num_columns(1).striped(true).show(
-                                        ui,
-                                        |ui| {
-                                            for device in &devices.devices {
-                                                ui.horizontal(|ui| {
-                                                    ui.set_width(ui.available_width());
-                                                    if ui.add(clickable_label(device)).clicked() {
-                                                        new_page = Some(RemotePage::measurements(
-                                                            context, &device,
-                                                        ));
-                                                    }
-                                                });
-                                                ui.end_row();
-                                            }
-                                        },
-                                    );
-                                });
-                        });
                     }
                     RemotePage::Measurements(device, measurements) => {
-                        ui.horizontal(|ui| {
-                            if ui.button("Reload").clicked() {
-                                new_page = Some(RemotePage::measurements(context, &device));
-                            }
-                            if ui.button("Back").clicked() {
-                                new_page = Some(RemotePage::new(context));
-                            }
-                        });
-
-                        ui.vertical(|ui| {
-                            ui.heading(format!("Measurements of {device}"));
-
-                            ScrollArea::vertical()
-                                .auto_shrink([false; 2])
-                                .show_viewport(ui, |ui, _viewport| {
-                                    Grid::new("measurements").num_columns(1).striped(true).show(
-                                        ui,
-                                        |ui| {
-                                            for (measurement, file) in &measurements.measurements {
-                                                ui.horizontal(|ui| {
-                                                    ui.set_width(ui.available_width());
-                                                
-                                                    if ui.button("🗑").clicked() {
-                                                        let message = format!("Are you sure you want to delete {measurement}?\nThis will remove the measurement from the cloud but it will not delete the local copy.");
-        
-                                                        let result = rfd::MessageDialog::new()
-                                                            .set_description(message)
-                                                            .set_buttons(
-                                                                rfd::MessageButtons::OkCancelCustom(
-                                                                    "Delete".to_string(),
-                                                                    "Don't delete".to_string(),
-                                                                ),
-                                                            )
-                                                            .set_level(rfd::MessageLevel::Info)
-                                                            .set_title("Delete measurement")
-                                                            .show();
-        
-                                                        if let MessageDialogResult::Custom(val) = result {
-                                                            if val == "Delete" {
-                                                                let url = context
-                                                                    .config
-                                                                    .backend_url(format!(
-                                                                    "measurements/{device}/{measurement}"
-                                                                ));
-                                                                context
-                                                                    .http_client
-                                                                    .delete(url)
-                                                                    .header(
-                                                                        "Authorization",
-                                                                        context.config.auth_token.header(),
-                                                                    )
-                                                                    .send()
-                                                                    .unwrap();
-        
-                                                                new_page = Some(RemotePage::measurements(
-                                                                    context, &device,
-                                                                ));
-                                                            }
-                                                        }
-                                                    }
-        
-                                                    if ui.add(clickable_label(measurement)).clicked() {
-                                                        let exists = Path::new(&file).exists();
-                                                        if exists {
-                                                            log::info!(
-                                                                "Already downloaded {device}/{measurement}"
-                                                            );
-                                                        } else {
-                                                            log::info!(
-                                                                "Downloading {device}/{measurement}"
-                                                            );
-                                                            let ekg = context
-                                                                .http_client
-                                                                .get(context.config.backend_url(format!(
-                                                                    "measurements/{device}/{measurement}"
-                                                                )))
-                                                                .header(
-                                                                    "Authorization",
-                                                                    context.config.auth_token.header(),
-                                                                )
-                                                                .send()
-                                                                .unwrap()
-                                                                .bytes()
-                                                                .unwrap();
-                                                            _ = fs::create_dir_all(file.parent().unwrap());
-                                                            fs::write(&file, ekg.as_ref()).unwrap();
-                                                        }
-        
-                                                        context.send_message(AppMessage::LoadFile(
-                                                            file.clone(),
-                                                        ));
-                                                    }
-                                                    ui.end_row();
-                                                });
-                                            }
-                                        },
-                                    );
-                                });
-                        });
+                        if let Some(page) = measurements.ui(ui, context, device) {
+                            new_page = Some(page);
+                        }
                     }
                 }
 
