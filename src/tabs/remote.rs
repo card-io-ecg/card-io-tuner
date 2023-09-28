@@ -207,6 +207,7 @@ impl RemotePage {
                 measurements: response
                     .measurements
                     .into_iter()
+                    .rev()
                     .map(|m| (m.clone(), PathBuf::from(format!("data/{device}/{m}"))))
                     .collect(),
             },
