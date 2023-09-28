@@ -187,7 +187,7 @@ impl ProcessedSignal {
 
             let ekg: &[f32] = &filtered.samples;
             let fs = filtered.fs as f32;
-            let mut calculator = HeartRateCalculator::new(fs as f32);
+            let mut calculator = HeartRateCalculator::new_alloc(fs as f32);
 
             let mut qrs_idxs = Vec::new();
             let mut thresholds = Vec::new();
