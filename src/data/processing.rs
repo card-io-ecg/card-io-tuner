@@ -185,9 +185,18 @@ impl ProcessedSignal {
             log::debug!("Data::hrs");
             let filtered = self.filtered_ekg(context);
 
-            let ekg: &[f32] = &filtered.samples;
-            let fs = filtered.fs as f32;
-            let mut calculator = HeartRateCalculator::new_alloc(fs as f32);
+            let mut ekg = filtered.samples.to_vec();
+
+            #[rustfmt::skip]
+            let low_pass = designfilt!(
+                "lowpassiir",
+                "FilterOrder", 2,
+                "HalfPowerFrequency", 20,
+                "SampleRate", 1000
+            );
+            apply_zero_phase_filter(&mut ekg, low_pass);
+
+            let mut calculator = HeartRateCalculator::new_alloc(filtered.fs as f32);
 
             let mut qrs_idxs = Vec::new();
             let mut thresholds = Vec::new();
