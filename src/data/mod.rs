@@ -105,7 +105,7 @@ impl Data {
         };
 
         match ekg {
-            Some(ekg) if ekg.fs == 1000.0 => {
+            Some(ekg) => {
                 let mut this = Self::new(path.to_owned(), ekg, config);
                 this.load_config();
                 Some(this)

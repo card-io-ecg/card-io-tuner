@@ -14,12 +14,12 @@ pub fn load(file: &Path) -> Option<Ekg> {
 
     let data = fs::read(dat).ok()?;
 
-    let format = header.channels[0].format()?;
+    let channel = &header.channels[0];
 
     let mut data = data.as_slice();
     let mut samples = vec![];
     while !data.is_empty() {
-        let sample = format.read(&mut data)?;
+        let sample = channel.read(&mut data)? * 0.001;
         samples.push(sample);
     }
 
@@ -45,6 +45,8 @@ struct Hea {
 struct Channel {
     _file_name: String,
     resolution: usize,
+    lsb_per_mv: f32,
+    zero: isize,
 }
 
 impl Channel {
@@ -53,6 +55,11 @@ impl Channel {
             16 => Some(Format::Int16LE),
             _ => None,
         }
+    }
+
+    fn read(&self, data: impl Read) -> Option<f32> {
+        let format = self.format()?;
+        Some((format.read(data)? - self.zero) as f32 / self.lsb_per_mv)
     }
 }
 
@@ -75,10 +82,15 @@ fn load_hea(hea: &Path) -> Option<Hea> {
 
         let _file_name = parts.next()?.to_string();
         let resolution = parts.next()?.parse().ok()?;
+        let lsb_per_mv = parts.next()?.parse::<usize>().ok()? as f32;
+        let _bits = parts.next()?.parse::<usize>().ok()?;
+        let baseline = parts.next()?.parse::<isize>().ok()?;
 
         channels.push(Channel {
             _file_name,
             resolution,
+            lsb_per_mv,
+            zero: baseline,
         });
     }
 
@@ -96,16 +108,14 @@ enum Format {
 }
 
 impl Format {
-    pub fn read(self, data: impl Read) -> Option<f32> {
+    pub fn read(self, data: impl Read) -> Option<isize> {
         match self {
             Format::Int16LE => {
                 let mut data = data.bytes();
-                let low = data.next()?;
-                let high = data.next()?;
-                let low = low.ok()? as i16;
-                let high = high.ok()? as i16;
+                let low = data.next()?.ok()? as i16;
+                let high = data.next()?.ok()? as i16;
                 let sample = (high << 8) | low;
-                Some(sample as f32)
+                Some(sample as isize)
             }
         }
     }
