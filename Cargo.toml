@@ -15,8 +15,8 @@ rfd = "0.12.0"
 rustfft = "6.1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.107"
-signal-processing = { git = "https://github.com/card-io-ecg/card-io-fw.git", features = ["alloc", "std"] }
-# signal-processing = { path = "../card-io-fw/signal-processing", features = ["alloc", "std"] }
+signal-processing = { git = "https://github.com/card-io-ecg/card-io-fw.git", features = ["alloc", "std", "dyn_filter"] }
+# signal-processing = { path = "../card-io-fw/signal-processing", features = ["alloc", "std", "dyn_filter"] }
 toml = "0.8.0"
 
 [target.'cfg(windows)'.dependencies]

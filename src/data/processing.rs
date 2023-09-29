@@ -3,9 +3,9 @@ use std::{cell::Ref, sync::Arc};
 use rustfft::num_complex::{Complex, ComplexFloat};
 use serde::{Deserialize, Serialize};
 use signal_processing::{
-    designfilt,
     filter::{
-        iir::{HighPass, Iir, LowPass},
+        dyn_iir::DynIir,
+        iir::{HighPass, LowPass},
         pli::{adaptation_blocking::AdaptationBlocking, PowerLineFilter},
         Filter,
     },
@@ -117,37 +117,24 @@ impl ProcessedSignal {
         self.filtered_ekg.get(|| {
             log::debug!("Data::filtered_ekg");
 
+            let fs = context.raw_ekg.fs as f32;
             let mut samples = self.raw_ekg(context).samples.to_vec();
 
             if context.config.pli {
-                apply_filter(
-                    &mut samples,
-                    PowerLineFilter::<AdaptationBlocking<Sum<1200>, 4, 19>, 1>::new(
-                        context.raw_ekg.fs as f32,
-                        [50.0],
-                    ),
+                let pli = PowerLineFilter::<AdaptationBlocking<Sum<1200>, 4, 19>, _, 1>::design(
+                    fs,
+                    [50.0],
                 );
+                apply_filter(&mut samples, pli);
             }
 
             if context.config.high_pass {
-                #[rustfmt::skip]
-                let high_pass = designfilt!(
-                    "highpassiir",
-                    "FilterOrder", 2,
-                    "HalfPowerFrequency", 0.75,
-                    "SampleRate", 1000
-                );
+                let high_pass = DynIir::<HighPass, 2>::design(fs, 0.75);
                 apply_zero_phase_filter(&mut samples, high_pass);
             }
 
             if context.config.low_pass {
-                #[rustfmt::skip]
-                let low_pass = designfilt!(
-                    "lowpassiir",
-                    "FilterOrder", 2,
-                    "HalfPowerFrequency", 75,
-                    "SampleRate", 1000
-                );
+                let low_pass = DynIir::<LowPass, 2>::design(fs, 75.0);
                 apply_zero_phase_filter(&mut samples, low_pass);
             }
 
@@ -187,13 +174,7 @@ impl ProcessedSignal {
 
             let mut ekg = filtered.samples.to_vec();
 
-            #[rustfmt::skip]
-            let low_pass = designfilt!(
-                "lowpassiir",
-                "FilterOrder", 2,
-                "HalfPowerFrequency", 20,
-                "SampleRate", 1000
-            );
+            let low_pass = DynIir::<LowPass, 2>::design(filtered.fs as f32, 20.0);
             apply_zero_phase_filter(&mut ekg, low_pass);
 
             let mut calculator = HeartRateCalculator::new_alloc(filtered.fs as f32);

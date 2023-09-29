@@ -1852,12 +1852,12 @@ checksum = "b5e6163cb8c49088c2c36f57875e58ccd8c87c7427f7fbd50ea6710b2f3f2e8f"
 [[package]]
 name = "logger"
 version = "0.1.0"
-source = "git+https://github.com/card-io-ecg/card-io-fw.git#2194638d9620baf698ab3a537ba0ba887390207e"
+source = "git+https://github.com/card-io-ecg/card-io-fw.git#06452817ff212ab1d8433d30f130d512d78d0aba"
 
 [[package]]
 name = "macros"
 version = "0.1.0"
-source = "git+https://github.com/card-io-ecg/card-io-fw.git#2194638d9620baf698ab3a537ba0ba887390207e"
+source = "git+https://github.com/card-io-ecg/card-io-fw.git#06452817ff212ab1d8433d30f130d512d78d0aba"
 dependencies = [
  "darling 0.20.3",
  "esp-idf-part",
@@ -2918,7 +2918,7 @@ dependencies = [
 [[package]]
 name = "signal-processing"
 version = "0.1.0"
-source = "git+https://github.com/card-io-ecg/card-io-fw.git#2194638d9620baf698ab3a537ba0ba887390207e"
+source = "git+https://github.com/card-io-ecg/card-io-fw.git#06452817ff212ab1d8433d30f130d512d78d0aba"
 dependencies = [
  "embedded-io",
  "logger",
@@ -2927,6 +2927,7 @@ dependencies = [
  "num-complex",
  "object-chain",
  "qrs_detector",
+ "sci-rs",
 ]
 
 [[package]]
