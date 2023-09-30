@@ -5,16 +5,17 @@ use std::{env, path::PathBuf};
 
 use eframe::egui::{self, CentralPanel, Id, TopBottomPanel};
 use egui_dock::{DockArea, DockState, Style};
-use reqwest::{blocking::Client, redirect::Policy};
 
 use crate::{
     app_config::AppConfig,
+    app_context::AppContext,
     data::Data,
     tabs::{remote::RemoteTab, signal_tab::SignalTab},
 };
 
 mod analysis;
 mod app_config;
+mod app_context;
 mod data;
 mod tabs;
 mod ui;
@@ -43,17 +44,6 @@ trait AppTab {
 impl PartialEq for Box<dyn AppTab> {
     fn eq(&self, other: &Self) -> bool {
         self.label() == other.label()
-    }
-}
-
-struct AppContext {
-    config: AppConfig,
-    http_client: Client,
-    messages: Vec<AppMessage>,
-}
-impl AppContext {
-    pub fn send_message(&mut self, message: AppMessage) {
-        self.messages.push(message);
     }
 }
 
@@ -90,14 +80,7 @@ impl Default for EkgTuner {
     fn default() -> Self {
         let tree = DockState::new(vec![]);
 
-        let context = AppContext {
-            config: AppConfig::load(),
-            http_client: Client::builder()
-                .redirect(Policy::limited(3))
-                .build()
-                .unwrap(),
-            messages: Vec::new(),
-        };
+        let context = AppContext::new(AppConfig::load());
 
         Self { tree, context }
     }
@@ -120,7 +103,7 @@ impl eframe::App for EkgTuner {
             egui::menu::bar(ui, |ui| {
                 if ui.button("Open file").clicked() {
                     if let Some(file) = rfd::FileDialog::new().pick_file() {
-                        self.context.messages.push(AppMessage::LoadFile(file));
+                        self.context.send_message(AppMessage::LoadFile(file));
                     }
                 }
                 if ui.button("Remote").clicked() {
@@ -147,12 +130,12 @@ impl eframe::App for EkgTuner {
         ctx.input(|i| {
             if !i.raw.dropped_files.is_empty() {
                 if let Some(file) = i.raw.dropped_files[0].path.clone() {
-                    self.context.messages.push(AppMessage::LoadFile(file));
+                    self.context.send_message(AppMessage::LoadFile(file));
                 }
             }
         });
 
-        for message in std::mem::take(&mut self.context.messages) {
+        for message in self.context.take_messages() {
             match message {
                 AppMessage::LoadFile(file) => self.load(file),
             }
