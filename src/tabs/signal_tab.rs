@@ -1,9 +1,10 @@
 use std::ops::Range;
 
 use eframe::{
-    egui::{DragValue, Grid, Id, PointerButton, Ui},
+    egui::{DragValue, Grid, Id, PointerButton, Ui, WidgetText},
     epaint::Color32,
 };
+use egui_dock::{DockArea, DockState, NodeIndex, Style};
 use egui_plot::{AxisBools, GridInput, GridMark, Legend, Line, MarkerShape, PlotPoints, Points};
 
 use crate::{
@@ -84,263 +85,37 @@ fn generate_grid_marks(input: GridInput, scale: f64, steps: &[i32]) -> Vec<GridM
     marks
 }
 
-#[derive(Debug, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-enum Tab {
-    EKG,
-    FFT,
-    HRV,
-    Cycle,
-}
-
 pub struct SignalTab {
     id: Id,
     label: String,
-    active_tab: Tab,
     data: Data,
+    tree: DockState<Box<dyn SignalSubTab>>,
 }
 
 impl SignalTab {
     pub fn new_boxed(label: String, data: Data) -> Box<Self> {
+        let id = Id::new(rand::random::<u64>());
+
+        let mut tree = DockState::<Box<dyn SignalSubTab>>::new(vec![Box::new(EkgTab::new(id))]);
+
+        let [_, right] = tree.main_surface_mut().split_right(
+            NodeIndex::root(),
+            2.0 / 3.0,
+            vec![Box::new(CycleTab::new(id))],
+        );
+        let [_, right] =
+            tree.main_surface_mut()
+                .split_below(right, 1.0 / 3.0, vec![Box::new(HrvTab::new(id))]);
+        let [_, _] =
+            tree.main_surface_mut()
+                .split_below(right, 0.5, vec![Box::new(FftTab::new(id))]);
+
         Box::new(Self {
-            id: Id::new(rand::random::<u64>()),
+            id,
             label,
             data,
-            active_tab: Tab::EKG,
+            tree,
         })
-    }
-
-    fn ekg_tab(&mut self, ui: &mut Ui) {
-        let mut lines = vec![];
-        let mut points = vec![];
-
-        let mut bottom = 0.0;
-        let mut idx = 0;
-        let mut marker_added = false;
-
-        {
-            let hr_data = self.data.hrs();
-            let ekg_data = self.data.filtered_ekg();
-            let adjusted_cycles = self.data.adjusted_cycles();
-
-            let chunk = self.data.config().row_width.max(1);
-
-            let ekg = ekg_data.samples.chunks(chunk);
-            let threshold = hr_data.thresholds.chunks(chunk);
-            let complex_lead = hr_data.complex_lead.chunks(chunk);
-
-            for (ekg, (threshold, complex_lead)) in ekg.zip(threshold.zip(complex_lead)) {
-                let (min, max) = ekg
-                    .iter()
-                    .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), y| {
-                        (min.min(*y), max.max(*y))
-                    });
-
-                let height = max - min;
-                let offset = (max - bottom) as f64;
-                bottom -= height + 0.0005; // 500uV margin
-
-                let mut signals = SignalCharts {
-                    lines: &mut lines,
-                    points: &mut points,
-                    offset,
-                    fs: ekg_data.fs,
-                    samples: idx..idx + ekg.len(),
-                };
-
-                if !marker_added {
-                    marker_added = true;
-                    // to nearest 1mV
-                    let marker_y =
-                        ((max as f64 - offset) * ekg_data.fs).floor() / ekg_data.fs - 0.001;
-                    let marker_x = -0.2;
-
-                    signals.lines.push(
-                        Line::new(
-                            [
-                                [marker_x + -0.04, marker_y + 0.0],
-                                [marker_x + 0.0, marker_y + 0.0],
-                                [marker_x + 0.0, marker_y + 0.001],
-                                [marker_x + 0.16, marker_y + 0.001],
-                                [marker_x + 0.16, marker_y + 0.0],
-                                [marker_x + 0.2, marker_y + 0.0],
-                            ]
-                            .into_iter()
-                            .collect::<PlotPoints>(),
-                        )
-                        .color(Color32::from_rgb(100, 200, 100)),
-                    );
-                }
-
-                signals.push(ekg.iter().map(|y| *y as f64), EKG_COLOR, "EKG");
-
-                if self.data.config().hr_debug {
-                    signals.push(
-                        threshold.iter().map(|y| y.total().unwrap_or(y.r) as f64),
-                        Color32::YELLOW,
-                        "Threshold",
-                    );
-                    signals.push(
-                        threshold.iter().map(|y| y.m.unwrap_or(f32::NAN) as f64),
-                        Color32::WHITE,
-                        "M",
-                    );
-                    signals.push(
-                        threshold.iter().map(|y| y.f.unwrap_or(f32::NAN) as f64),
-                        Color32::GRAY,
-                        "F",
-                    );
-                    signals.push(threshold.iter().map(|y| y.r as f64), Color32::GREEN, "R");
-                    signals.push(
-                        complex_lead.iter().map(|y| *y as f64),
-                        Color32::LIGHT_RED,
-                        "Complex lead",
-                    );
-                }
-
-                // signals.push_points(
-                //     hr_data
-                //         .detections
-                //         .iter()
-                //         .map(|idx| (*idx, ekg_data.samples[*idx] as f64)),
-                //     Color32::LIGHT_RED,
-                //     "Raw HR",
-                // );
-
-                signals.push_points(
-                    adjusted_cycles
-                        .iter()
-                        .map(|cycle| cycle.position)
-                        .map(|idx| (idx, ekg_data.samples[idx] as f64)),
-                    Color32::LIGHT_GREEN,
-                    format!("HR: {}", self.data.avg_hr().round() as i32),
-                );
-
-                idx += ekg.len();
-            }
-        }
-
-        egui_plot::Plot::new("ekg")
-            .legend(Legend::default())
-            .show_axes(false)
-            .show_grid(true)
-            .data_aspect(400.0) // 1 small square = 40ms = 0.1mV
-            .allow_scroll(false)
-            .boxed_zoom_pointer_button(PointerButton::Middle)
-            .x_grid_spacer(|input| generate_grid_marks(input, 1.0 / 0.01, &[20, 4])) // 10ms resolution, 200ms, 40ms
-            .y_grid_spacer(|input| generate_grid_marks(input, 1.0 / 0.000_1, &[5, 1])) // 100uV resolution, 500uV, 100uV
-            .show(ui, |plot_ui| {
-                for line in lines {
-                    plot_ui.line(line);
-                }
-                for points in points {
-                    plot_ui.points(points);
-                }
-            });
-    }
-
-    fn fft_tab(&mut self, ui: &mut Ui) {
-        let fft = {
-            let fft = self.data.fft();
-
-            let x_scale = self.data.filtered_ekg().fs / fft.len() as f64;
-
-            Line::new(
-                fft.iter()
-                    .skip(1 - self.data.config().high_pass as usize) // skip DC if high-pass is off
-                    .take(fft.len() / 2)
-                    .enumerate()
-                    .map(|(x, y)| [x as f64 * x_scale, *y as f64])
-                    .collect::<PlotPoints>(),
-            )
-            .color(EKG_COLOR)
-            .name("FFT")
-        };
-
-        egui_plot::Plot::new((&self.label, "fft"))
-            .legend(Legend::default())
-            .show_axes(false)
-            .show_grid(true)
-            .auto_bounds_y()
-            .allow_scroll(false)
-            .boxed_zoom_pointer_button(PointerButton::Middle)
-            .allow_zoom(AxisBools { x: false, y: true })
-            .show(ui, |plot_ui| {
-                plot_ui.line(fft);
-            });
-    }
-
-    fn hrv_tab(&mut self, ui: &mut Ui) {
-        let fs = self.data.filtered_ekg().fs;
-        let hr_data = self.data.adjusted_cycles();
-
-        // Poincare plot to visualize heart-rate variability
-        let rrs = hr_data
-            .iter()
-            .map(|cycle| cycle.position)
-            .map_windows(|[x, y]| ((*y - *x) as f64 / fs) * 1000.0);
-
-        let (min_rr, max_rr) = rrs
-            .clone()
-            .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), y| {
-                (min.min(y), max.max(y))
-            });
-
-        egui_plot::Plot::new((&self.label, "hrv"))
-            .legend(Legend::default())
-            .show_axes(true)
-            .show_grid(true)
-            .include_x(min_rr - 100.0)
-            .include_x(max_rr + 100.0)
-            .include_y(min_rr - 100.0)
-            .include_y(max_rr + 100.0)
-            .data_aspect(1.0)
-            .allow_scroll(false)
-            .boxed_zoom_pointer_button(PointerButton::Middle)
-            .show(ui, |plot_ui| {
-                plot_ui.points(
-                    Points::new(rrs.map_windows(|[x, y]| [*x, *y]).collect::<PlotPoints>())
-                        .color(EKG_COLOR),
-                );
-            });
-    }
-
-    fn cycle_tab(&mut self, ui: &mut Ui) {
-        let mut lines = vec![];
-
-        let fs = self.data.filtered_ekg().fs;
-        let mut add_cycle = |cycle: &Cycle, name: &str, color: Color32| {
-            lines.push(
-                Line::new(
-                    cycle
-                        .as_slice()
-                        .iter()
-                        .enumerate()
-                        .map(|(x, y)| [(x as f64 - cycle.position as f64) / fs, *y as f64])
-                        .collect::<PlotPoints>(),
-                )
-                .color(color)
-                .name(name),
-            );
-        };
-
-        // add_cycle(&data.average_cycle(), "Average cycle", Color32::LIGHT_RED);
-        add_cycle(&self.data.majority_cycle(), "Majority cycle", EKG_COLOR);
-
-        egui_plot::Plot::new((&self.label, "cycle"))
-            .legend(Legend::default())
-            .show_axes(false)
-            .show_grid(true)
-            .data_aspect(400.0) // 1 small square = 40ms = 0.1mV
-            .allow_scroll(false)
-            .boxed_zoom_pointer_button(PointerButton::Middle)
-            .x_grid_spacer(|input| generate_grid_marks(input, 1.0 / 0.01, &[20, 4])) // 10ms resolution, 200ms, 40ms
-            .y_grid_spacer(|input| generate_grid_marks(input, 1.0 / 0.000_1, &[5, 1])) // 100uV resolution, 500uV, 100uV
-            .show(ui, |plot_ui| {
-                for line in lines {
-                    plot_ui.line(line);
-                }
-            });
     }
 
     fn signal_editor(&mut self, ui: &mut Ui) {
@@ -413,20 +188,373 @@ impl AppTab for SignalTab {
     }
 
     fn display(&mut self, ui: &mut Ui, _: &mut AppContext) {
-        ui.horizontal(|ui| {
-            ui.selectable_value(&mut self.active_tab, Tab::EKG, "EKG");
-            ui.selectable_value(&mut self.active_tab, Tab::FFT, "FFT");
-            ui.selectable_value(&mut self.active_tab, Tab::HRV, "HRV");
-            ui.selectable_value(&mut self.active_tab, Tab::Cycle, "Cycle info");
+        ui.vertical(|ui| {
+            self.signal_editor(ui);
+            let id = self.id().with("dock");
+            DockArea::new(&mut self.tree)
+                .id(id)
+                .style(Style::from_egui(ui.ctx().style().as_ref()))
+                .show_inside(
+                    ui,
+                    &mut SignalTabViewer {
+                        data: &mut self.data,
+                    },
+                );
         });
+    }
+}
 
-        self.signal_editor(ui);
+trait SignalSubTab {
+    fn id(&self) -> Id;
+    fn label(&self) -> &str;
+    fn display(&mut self, ui: &mut Ui, data: &mut Data);
+}
 
-        match self.active_tab {
-            Tab::EKG => self.ekg_tab(ui),
-            Tab::FFT => self.fft_tab(ui),
-            Tab::HRV => self.hrv_tab(ui),
-            Tab::Cycle => self.cycle_tab(ui),
+struct SignalTabViewer<'a> {
+    data: &'a mut Data,
+}
+
+impl egui_dock::TabViewer for SignalTabViewer<'_> {
+    type Tab = Box<dyn SignalSubTab>;
+
+    fn id(&mut self, tab: &mut Self::Tab) -> Id {
+        tab.id()
+    }
+
+    fn title(&mut self, tab: &mut Self::Tab) -> WidgetText {
+        tab.label().into()
+    }
+
+    fn ui(&mut self, ui: &mut Ui, tab: &mut Self::Tab) {
+        tab.display(ui, self.data);
+    }
+
+    fn allowed_in_windows(&self, _tab: &mut Self::Tab) -> bool {
+        false
+    }
+
+    fn closeable(&mut self, _tab: &mut Self::Tab) -> bool {
+        false
+    }
+}
+
+struct EkgTab {
+    id: Id,
+}
+
+impl EkgTab {
+    fn new(id: Id) -> Self {
+        Self {
+            id: id.with("ekg_tab"),
         }
+    }
+}
+
+impl SignalSubTab for EkgTab {
+    fn id(&self) -> Id {
+        self.id
+    }
+
+    fn label(&self) -> &str {
+        "EKG"
+    }
+
+    fn display(&mut self, ui: &mut Ui, data: &mut Data) {
+        let mut lines = vec![];
+        let mut points = vec![];
+
+        let mut bottom = 0.0;
+        let mut idx = 0;
+        let mut marker_added = false;
+
+        {
+            let hr_data = data.hrs();
+            let ekg_data = data.filtered_ekg();
+            let adjusted_cycles = data.adjusted_cycles();
+
+            let chunk = data.config().row_width.max(1);
+
+            let ekg = ekg_data.samples.chunks(chunk);
+            let threshold = hr_data.thresholds.chunks(chunk);
+            let complex_lead = hr_data.complex_lead.chunks(chunk);
+
+            for (ekg, (threshold, complex_lead)) in ekg.zip(threshold.zip(complex_lead)) {
+                let (min, max) = ekg
+                    .iter()
+                    .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), y| {
+                        (min.min(*y), max.max(*y))
+                    });
+
+                let height = max - min;
+                let offset = (max - bottom) as f64;
+                bottom -= height + 0.0005; // 500uV margin
+
+                let mut signals = SignalCharts {
+                    lines: &mut lines,
+                    points: &mut points,
+                    offset,
+                    fs: ekg_data.fs,
+                    samples: idx..idx + ekg.len(),
+                };
+
+                if !marker_added {
+                    marker_added = true;
+                    // to nearest 1mV
+                    let marker_y =
+                        ((max as f64 - offset) * ekg_data.fs).floor() / ekg_data.fs - 0.001;
+                    let marker_x = -0.2;
+
+                    signals.lines.push(
+                        Line::new(
+                            [
+                                [marker_x + -0.04, marker_y + 0.0],
+                                [marker_x + 0.0, marker_y + 0.0],
+                                [marker_x + 0.0, marker_y + 0.001],
+                                [marker_x + 0.16, marker_y + 0.001],
+                                [marker_x + 0.16, marker_y + 0.0],
+                                [marker_x + 0.2, marker_y + 0.0],
+                            ]
+                            .into_iter()
+                            .collect::<PlotPoints>(),
+                        )
+                        .color(Color32::from_rgb(100, 200, 100)),
+                    );
+                }
+
+                signals.push(ekg.iter().map(|y| *y as f64), EKG_COLOR, "EKG");
+
+                if data.config().hr_debug {
+                    signals.push(
+                        threshold.iter().map(|y| y.total().unwrap_or(y.r) as f64),
+                        Color32::YELLOW,
+                        "Threshold",
+                    );
+                    signals.push(
+                        threshold.iter().map(|y| y.m.unwrap_or(f32::NAN) as f64),
+                        Color32::WHITE,
+                        "M",
+                    );
+                    signals.push(
+                        threshold.iter().map(|y| y.f.unwrap_or(f32::NAN) as f64),
+                        Color32::GRAY,
+                        "F",
+                    );
+                    signals.push(threshold.iter().map(|y| y.r as f64), Color32::GREEN, "R");
+                    signals.push(
+                        complex_lead.iter().map(|y| *y as f64),
+                        Color32::LIGHT_RED,
+                        "Complex lead",
+                    );
+                }
+
+                // signals.push_points(
+                //     hr_data
+                //         .detections
+                //         .iter()
+                //         .map(|idx| (*idx, ekg_data.samples[*idx] as f64)),
+                //     Color32::LIGHT_RED,
+                //     "Raw HR",
+                // );
+
+                signals.push_points(
+                    adjusted_cycles
+                        .iter()
+                        .map(|cycle| cycle.position)
+                        .map(|idx| (idx, ekg_data.samples[idx] as f64)),
+                    Color32::LIGHT_GREEN,
+                    format!("HR: {}", data.avg_hr().round() as i32),
+                );
+
+                idx += ekg.len();
+            }
+        }
+
+        egui_plot::Plot::new(ui.id().with("ekg"))
+            .legend(Legend::default())
+            .show_axes(false)
+            .show_grid(true)
+            .data_aspect(400.0) // 1 small square = 40ms = 0.1mV
+            .allow_scroll(false)
+            .boxed_zoom_pointer_button(PointerButton::Middle)
+            .x_grid_spacer(|input| generate_grid_marks(input, 1.0 / 0.01, &[20, 4])) // 10ms resolution, 200ms, 40ms
+            .y_grid_spacer(|input| generate_grid_marks(input, 1.0 / 0.000_1, &[5, 1])) // 100uV resolution, 500uV, 100uV
+            .show(ui, |plot_ui| {
+                for line in lines {
+                    plot_ui.line(line);
+                }
+                for points in points {
+                    plot_ui.points(points);
+                }
+            });
+    }
+}
+
+struct FftTab {
+    id: Id,
+}
+
+impl FftTab {
+    fn new(id: Id) -> Self {
+        Self {
+            id: id.with("fft_tab"),
+        }
+    }
+}
+
+impl SignalSubTab for FftTab {
+    fn id(&self) -> Id {
+        self.id
+    }
+
+    fn label(&self) -> &str {
+        "FFT"
+    }
+
+    fn display(&mut self, ui: &mut Ui, data: &mut Data) {
+        let fft = {
+            let fft = data.fft();
+
+            let x_scale = data.filtered_ekg().fs / fft.len() as f64;
+
+            Line::new(
+                fft.iter()
+                    .skip(1 - data.config().high_pass as usize) // skip DC if high-pass is off
+                    .take(fft.len() / 2)
+                    .enumerate()
+                    .map(|(x, y)| [x as f64 * x_scale, *y as f64])
+                    .collect::<PlotPoints>(),
+            )
+            .color(EKG_COLOR)
+            .name("FFT")
+        };
+
+        egui_plot::Plot::new(ui.id().with("fft"))
+            .legend(Legend::default())
+            .show_axes(false)
+            .show_grid(true)
+            .auto_bounds_y()
+            .allow_scroll(false)
+            .boxed_zoom_pointer_button(PointerButton::Middle)
+            .allow_zoom(AxisBools { x: false, y: true })
+            .show(ui, |plot_ui| {
+                plot_ui.line(fft);
+            });
+    }
+}
+
+struct HrvTab {
+    id: Id,
+}
+
+impl HrvTab {
+    fn new(id: Id) -> Self {
+        Self {
+            id: id.with("hrv_tab"),
+        }
+    }
+}
+
+impl SignalSubTab for HrvTab {
+    fn id(&self) -> Id {
+        self.id
+    }
+
+    fn label(&self) -> &str {
+        "HRV"
+    }
+
+    fn display(&mut self, ui: &mut Ui, data: &mut Data) {
+        let fs = data.filtered_ekg().fs;
+        let hr_data = data.adjusted_cycles();
+
+        // Poincare plot to visualize heart-rate variability
+        let rrs = hr_data
+            .iter()
+            .map(|cycle| cycle.position)
+            .map_windows(|[x, y]| ((*y - *x) as f64 / fs) * 1000.0);
+
+        let (min_rr, max_rr) = rrs
+            .clone()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), y| {
+                (min.min(y), max.max(y))
+            });
+
+        egui_plot::Plot::new(ui.id().with("hrv"))
+            .legend(Legend::default())
+            .show_axes(true)
+            .show_grid(true)
+            .include_x(min_rr - 100.0)
+            .include_x(max_rr + 100.0)
+            .include_y(min_rr - 100.0)
+            .include_y(max_rr + 100.0)
+            .data_aspect(1.0)
+            .allow_scroll(false)
+            .boxed_zoom_pointer_button(PointerButton::Middle)
+            .show(ui, |plot_ui| {
+                plot_ui.points(
+                    Points::new(rrs.map_windows(|[x, y]| [*x, *y]).collect::<PlotPoints>())
+                        .color(EKG_COLOR),
+                );
+            });
+    }
+}
+
+struct CycleTab {
+    id: Id,
+}
+
+impl CycleTab {
+    fn new(id: Id) -> Self {
+        Self {
+            id: id.with("cycle_tab"),
+        }
+    }
+}
+
+impl SignalSubTab for CycleTab {
+    fn id(&self) -> Id {
+        self.id
+    }
+
+    fn label(&self) -> &str {
+        "Cycle"
+    }
+
+    fn display(&mut self, ui: &mut Ui, data: &mut Data) {
+        let mut lines = vec![];
+
+        let fs = data.filtered_ekg().fs;
+        let mut add_cycle = |cycle: &Cycle, name: &str, color: Color32| {
+            lines.push(
+                Line::new(
+                    cycle
+                        .as_slice()
+                        .iter()
+                        .enumerate()
+                        .map(|(x, y)| [(x as f64 - cycle.position as f64) / fs, *y as f64])
+                        .collect::<PlotPoints>(),
+                )
+                .color(color)
+                .name(name),
+            );
+        };
+
+        // add_cycle(&data.average_cycle(), "Average cycle", Color32::LIGHT_RED);
+        add_cycle(&data.majority_cycle(), "Majority cycle", EKG_COLOR);
+
+        egui_plot::Plot::new(ui.id().with("cycle"))
+            .legend(Legend::default())
+            .show_axes(false)
+            .show_grid(true)
+            .data_aspect(400.0) // 1 small square = 40ms = 0.1mV
+            .allow_scroll(false)
+            .boxed_zoom_pointer_button(PointerButton::Middle)
+            .x_grid_spacer(|input| generate_grid_marks(input, 1.0 / 0.01, &[20, 4])) // 10ms resolution, 200ms, 40ms
+            .y_grid_spacer(|input| generate_grid_marks(input, 1.0 / 0.000_1, &[5, 1])) // 100uV resolution, 500uV, 100uV
+            .show(ui, |plot_ui| {
+                for line in lines {
+                    plot_ui.line(line);
+                }
+            });
     }
 }
