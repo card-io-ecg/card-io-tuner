@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use eframe::egui::{self, Ui};
+use eframe::egui::{self, Id, Ui};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -338,18 +338,24 @@ impl RemoteState {
 }
 
 pub struct RemoteTab {
+    id: Id,
     state: RemoteState,
 }
 
 impl RemoteTab {
     pub fn new_boxed() -> Box<dyn AppTab> {
         Box::new(Self {
+            id: Id::new(rand::random::<u64>()),
             state: RemoteState::Login(LoginData::new()),
         })
     }
 }
 
 impl AppTab for RemoteTab {
+    fn id(&self) -> Id {
+        self.id
+    }
+
     fn label(&self) -> &str {
         "Remote"
     }

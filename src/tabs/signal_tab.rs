@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use eframe::{
-    egui::{DragValue, Grid, PointerButton, Ui},
+    egui::{DragValue, Grid, Id, PointerButton, Ui},
     epaint::Color32,
 };
 use egui_plot::{AxisBools, GridInput, GridMark, Legend, Line, MarkerShape, PlotPoints, Points};
@@ -94,6 +94,7 @@ enum Tab {
 }
 
 pub struct SignalTab {
+    id: Id,
     label: String,
     active_tab: Tab,
     data: Data,
@@ -102,6 +103,7 @@ pub struct SignalTab {
 impl SignalTab {
     pub fn new_boxed(label: String, data: Data) -> Box<Self> {
         Box::new(Self {
+            id: Id::new(rand::random::<u64>()),
             label,
             data,
             active_tab: Tab::EKG,
@@ -218,7 +220,7 @@ impl SignalTab {
             }
         }
 
-        egui_plot::Plot::new((&self.label, "ekg"))
+        egui_plot::Plot::new("ekg")
             .legend(Legend::default())
             .show_axes(false)
             .show_grid(true)
@@ -402,6 +404,10 @@ impl SignalTab {
 }
 
 impl AppTab for SignalTab {
+    fn id(&self) -> Id {
+        self.id
+    }
+
     fn label(&self) -> &str {
         &self.label
     }
