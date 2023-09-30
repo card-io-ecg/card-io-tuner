@@ -69,6 +69,10 @@ impl egui_dock::TabViewer for TabViewer<'_> {
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
         tab.display(ui, self.context);
     }
+
+    fn allowed_in_windows(&self, _tab: &mut Self::Tab) -> bool {
+        false
+    }
 }
 
 struct EkgTuner {
@@ -116,15 +120,19 @@ impl eframe::App for EkgTuner {
                 }
             })
         });
+
         CentralPanel::default().show(ctx, |ui| {
-            DockArea::new(&mut self.tree)
-                .style(Style::from_egui(ui.ctx().style().as_ref()))
-                .show(
-                    ctx,
-                    &mut TabViewer {
-                        context: &mut self.context,
-                    },
-                );
+            // Hack to not draw empty initial tab bar
+            if self.tree.main_surface().num_tabs() > 0 {
+                DockArea::new(&mut self.tree)
+                    .style(Style::from_egui(ui.ctx().style().as_ref()))
+                    .show(
+                        ctx,
+                        &mut TabViewer {
+                            context: &mut self.context,
+                        },
+                    );
+            }
         });
 
         ctx.input(|i| {
