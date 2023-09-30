@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 eframe = "0.23"
-egui_dock = "0.8.0"
+egui_dock = "0.8"
 egui_plot = "0.23"
 env_logger = "0.10"
 log = "0.4"
