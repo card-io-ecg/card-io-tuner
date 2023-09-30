@@ -360,8 +360,7 @@ impl AppTab for RemoteTab {
         "Remote"
     }
 
-    fn display(&mut self, ui: &mut Ui, context: &mut AppContext) -> bool {
+    fn display(&mut self, ui: &mut Ui, context: &mut AppContext) {
         self.state.display(ui, context);
-        false
     }
 }

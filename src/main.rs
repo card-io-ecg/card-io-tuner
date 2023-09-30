@@ -38,7 +38,7 @@ fn main() -> Result<(), eframe::Error> {
 trait AppTab {
     fn id(&self) -> Id;
     fn label(&self) -> &str;
-    fn display(&mut self, ui: &mut egui::Ui, context: &mut AppContext) -> bool;
+    fn display(&mut self, ui: &mut egui::Ui, context: &mut AppContext);
 }
 
 impl PartialEq for Box<dyn AppTab> {
@@ -73,6 +73,10 @@ impl egui_dock::TabViewer for TabViewer<'_> {
     fn allowed_in_windows(&self, _tab: &mut Self::Tab) -> bool {
         false
     }
+
+    fn closeable(&mut self, tab: &mut Self::Tab) -> bool {
+        tab.label() != "Remote"
+    }
 }
 
 struct EkgTuner {
@@ -82,7 +86,7 @@ struct EkgTuner {
 
 impl Default for EkgTuner {
     fn default() -> Self {
-        let tree = DockState::new(vec![]);
+        let tree = DockState::new(vec![RemoteTab::new_boxed()]);
 
         let context = AppContext::new(AppConfig::load());
 
@@ -108,14 +112,6 @@ impl eframe::App for EkgTuner {
                 if ui.button("Open file").clicked() {
                     if let Some(file) = rfd::FileDialog::new().pick_file() {
                         self.context.send_message(AppMessage::LoadFile(file));
-                    }
-                }
-                if ui.button("Remote").clicked() {
-                    let remote = RemoteTab::new_boxed();
-                    if let Some(tab) = self.tree.find_tab(&remote) {
-                        self.tree.set_active_tab(tab);
-                    } else {
-                        self.tree.push_to_focused_leaf(remote);
                     }
                 }
             })

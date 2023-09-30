@@ -412,15 +412,7 @@ impl AppTab for SignalTab {
         &self.label
     }
 
-    fn display(&mut self, ui: &mut Ui, _: &mut AppContext) -> bool {
-        let mut close = false;
-        ui.horizontal(|ui| {
-            if ui.button("Close").clicked() {
-                close = true;
-            }
-            ui.label(self.data.path.display().to_string());
-        });
-
+    fn display(&mut self, ui: &mut Ui, _: &mut AppContext) {
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.active_tab, Tab::EKG, "EKG");
             ui.selectable_value(&mut self.active_tab, Tab::FFT, "FFT");
@@ -436,7 +428,5 @@ impl AppTab for SignalTab {
             Tab::HRV => self.hrv_tab(ui),
             Tab::Cycle => self.cycle_tab(ui),
         }
-
-        close
     }
 }
