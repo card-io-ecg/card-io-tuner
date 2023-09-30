@@ -3,17 +3,19 @@
 
 use std::{env, path::PathBuf};
 
-use eframe::egui;
-use reqwest::{blocking::Client, redirect::Policy};
+use eframe::egui::{self, CentralPanel, Id, TopBottomPanel};
+use egui_dock::{DockArea, DockState, Style};
 
 use crate::{
     app_config::AppConfig,
+    app_context::AppContext,
     data::Data,
     tabs::{remote::RemoteTab, signal_tab::SignalTab},
 };
 
 mod analysis;
 mod app_config;
+mod app_context;
 mod data;
 mod tabs;
 mod ui;
@@ -23,7 +25,7 @@ fn main() -> Result<(), eframe::Error> {
     env_logger::init();
 
     eframe::run_native(
-        "EKG visualizer and filter tuner",
+        "EKG visualizer",
         eframe::NativeOptions {
             drag_and_drop_support: true,
             initial_window_size: Some(egui::vec2(640.0, 480.0)),
@@ -34,18 +36,14 @@ fn main() -> Result<(), eframe::Error> {
 }
 
 trait AppTab {
+    fn id(&self) -> Id;
     fn label(&self) -> &str;
-    fn display(&mut self, ui: &mut egui::Ui, context: &mut AppContext) -> bool;
+    fn display(&mut self, ui: &mut egui::Ui, context: &mut AppContext);
 }
 
-struct AppContext {
-    config: AppConfig,
-    http_client: Client,
-    messages: Vec<AppMessage>,
-}
-impl AppContext {
-    pub fn send_message(&mut self, message: AppMessage) {
-        self.messages.push(message);
+impl PartialEq for Box<dyn AppTab> {
+    fn eq(&self, other: &Self) -> bool {
+        self.label() == other.label()
     }
 }
 
@@ -53,82 +51,95 @@ enum AppMessage {
     LoadFile(PathBuf),
 }
 
+struct TabViewer<'a> {
+    context: &'a mut AppContext,
+}
+
+impl egui_dock::TabViewer for TabViewer<'_> {
+    type Tab = Box<dyn AppTab>;
+
+    fn id(&mut self, tab: &mut Self::Tab) -> Id {
+        tab.id()
+    }
+
+    fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
+        tab.label().into()
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
+        tab.display(ui, self.context);
+    }
+
+    fn allowed_in_windows(&self, _tab: &mut Self::Tab) -> bool {
+        false
+    }
+
+    fn closeable(&mut self, tab: &mut Self::Tab) -> bool {
+        tab.label() != "Remote"
+    }
+}
+
 struct EkgTuner {
-    tabs: Vec<Box<dyn AppTab>>,
-    selected_tab: usize,
+    tree: DockState<Box<dyn AppTab>>,
     context: AppContext,
 }
 
 impl Default for EkgTuner {
     fn default() -> Self {
-        let mut tabs = Vec::new();
+        let tree = DockState::new(vec![RemoteTab::new_boxed()]);
 
-        let context = AppContext {
-            config: AppConfig::load(),
-            http_client: Client::builder()
-                .redirect(Policy::limited(3))
-                .build()
-                .unwrap(),
-            messages: Vec::new(),
-        };
-        tabs.push(RemoteTab::new_boxed());
+        let context = AppContext::new(AppConfig::load());
 
-        Self {
-            tabs,
-            selected_tab: 0,
-            context,
-        }
+        Self { tree, context }
     }
 }
 
 impl EkgTuner {
     fn load(&mut self, path: PathBuf) {
+        let title = path.file_name().unwrap().to_string_lossy().to_string();
+
         if let Some(data) = Data::load(&path) {
-            self.tabs.push(SignalTab::new_boxed(
-                path.file_name().unwrap().to_string_lossy().to_string(),
-                data,
-            ));
-            self.selected_tab = self.tabs.len() - 1;
+            self.tree
+                .push_to_focused_leaf(SignalTab::new_boxed(title, data));
         }
     }
 }
 
 impl eframe::App for EkgTuner {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.horizontal(|ui| {
+        TopBottomPanel::top("egui_dock::MenuBar").show(ctx, |ui| {
+            egui::menu::bar(ui, |ui| {
                 if ui.button("Open file").clicked() {
                     if let Some(file) = rfd::FileDialog::new().pick_file() {
-                        self.context.messages.push(AppMessage::LoadFile(file));
+                        self.context.send_message(AppMessage::LoadFile(file));
                     }
                 }
+            })
+        });
 
-                for (i, tab) in self.tabs.iter().enumerate() {
-                    ui.selectable_value(&mut self.selected_tab, i, tab.label());
-                }
-            });
-
-            let close_current = if let Some(tab) = self.tabs.get_mut(self.selected_tab) {
-                tab.display(ui, &mut self.context)
-            } else {
-                false
-            };
-
-            if close_current {
-                self.tabs.remove(self.selected_tab);
-                self.selected_tab = self.selected_tab.min(self.tabs.len().saturating_sub(1));
+        CentralPanel::default().show(ctx, |ui| {
+            // Hack to not draw empty initial tab bar
+            if self.tree.main_surface().num_tabs() > 0 {
+                DockArea::new(&mut self.tree)
+                    .style(Style::from_egui(ui.ctx().style().as_ref()))
+                    .show(
+                        ctx,
+                        &mut TabViewer {
+                            context: &mut self.context,
+                        },
+                    );
             }
         });
 
         ctx.input(|i| {
             if !i.raw.dropped_files.is_empty() {
                 if let Some(file) = i.raw.dropped_files[0].path.clone() {
-                    self.context.messages.push(AppMessage::LoadFile(file));
+                    self.context.send_message(AppMessage::LoadFile(file));
                 }
             }
         });
 
-        for message in std::mem::take(&mut self.context.messages) {
+        for message in self.context.take_messages() {
             match message {
                 AppMessage::LoadFile(file) => self.load(file),
             }
