@@ -255,16 +255,13 @@ impl ProcessedSignal {
             log::debug!("Data::adjusted_cycles");
             let filtered = self.filtered_ekg(context);
 
-            let fs = (filtered.fs as f32).sps();
+            let fs = filtered.fs.sps();
 
             let avg_rr = self.avg_rr_samples(context);
 
             let cycles = self.cycles(context);
 
-            let cycle_idxs = cycles.iter().map(|cycle| cycle.position);
-            let all_cycles = cycles.iter().map(|cycle| cycle.as_slice());
-
-            let all_average = average_cycle(all_cycles.clone());
+            let all_average = average_cycle(cycles.iter().map(|cycle| cycle.as_slice()));
 
             // For QRS adjustment, we're using the 50-50 ms window around the peak of the QRS
             let avg_qrs_width = fs.ms_to_samples(25.0);
@@ -285,24 +282,19 @@ impl ProcessedSignal {
                 .last()
                 .unwrap();
 
-            let avg_qrs = &all_average[max_pos - avg_qrs_width..][..2 * avg_qrs_width];
+            let avg_qrs = &all_average[max_pos - avg_qrs_width..max_pos + avg_qrs_width];
 
             let pre = avg_rr / 3;
             let avg_max_offset = max_pos as isize - pre as isize;
 
-            let adjusted_idxs = cycle_idxs.map(|idx| {
-                let idx = idx as isize;
-                let offset_to_avg = adjust_time(
-                    &filtered.samples[(idx + avg_max_offset) as usize - avg_qrs.len()..]
-                        [..2 * avg_qrs.len()],
-                    &avg_qrs,
-                );
+            cycles
+                .iter()
+                .filter_map(|cycle| cycle.offset(avg_max_offset))
+                .filter_map(|cycle| {
+                    let offset_to_avg = adjust_time(cycle.middle(avg_qrs.len()), &avg_qrs);
 
-                (idx + avg_max_offset + offset_to_avg) as usize
-            });
-
-            adjusted_idxs
-                .filter_map(|idx| Cycle::at(&filtered.samples, idx, avg_rr))
+                    cycle.offset(offset_to_avg)
+                })
                 .collect::<Vec<_>>()
         })
     }

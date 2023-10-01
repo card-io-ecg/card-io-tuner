@@ -80,6 +80,29 @@ impl Cycle {
     pub fn as_slice(&self) -> &[f32] {
         &self.samples[self.start..self.end]
     }
+
+    // Returns samples around the current position
+    fn middle(&self, r: usize) -> &[f32] {
+        &self.samples[self.position - r..self.position + r]
+    }
+
+    fn offset(&self, offset: isize) -> Option<Cycle> {
+        let start = self.start as isize + offset;
+        let end = self.end as isize + offset;
+
+        if start < 0 || end > self.samples.len() as isize {
+            return None;
+        }
+
+        self.samples
+            .get(start as usize..end as usize)
+            .map(|_| Cycle {
+                samples: self.samples.clone(),
+                start: start as usize,
+                position: (self.position as isize + offset) as usize,
+                end: end as usize,
+            })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
