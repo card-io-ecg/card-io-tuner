@@ -11,6 +11,10 @@ pub fn average_cycle<'a>(mut cycles: impl Iterator<Item = &'a [f32]>) -> Vec<f32
         return vec![];
     };
 
+    if first.is_empty() {
+        return vec![];
+    }
+
     let mut count = 1;
     let mut average = first.to_vec();
 

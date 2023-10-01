@@ -237,23 +237,12 @@ impl ProcessedSignal {
             let filtered = self.filtered_ekg(context);
             let hrs = self.hrs(context);
 
-            let fs = (filtered.fs as f32).sps();
-            let avg_rr = self.avg_rr(context) as f32;
-
-            let pre = fs.s_to_samples(avg_rr / 3.0);
-            let post = fs.s_to_samples(avg_rr * 2.0 / 3.0);
+            let avg_rr = self.avg_rr_samples(context);
 
             hrs.detections
                 .iter()
                 .copied()
-                .filter_map(|idx| {
-                    filtered.samples.get(idx - pre..idx + post).map(|_| Cycle {
-                        samples: filtered.samples.clone(),
-                        start: idx - pre,
-                        position: idx,
-                        end: idx + post,
-                    })
-                })
+                .filter_map(|idx| Cycle::at(&filtered.samples, idx, avg_rr))
                 .collect::<Vec<_>>()
         })
     }
@@ -264,10 +253,8 @@ impl ProcessedSignal {
             let filtered = self.filtered_ekg(context);
 
             let fs = (filtered.fs as f32).sps();
-            let avg_rr = self.avg_rr(context) as f32;
 
-            let pre = fs.s_to_samples(avg_rr / 3.0);
-            let post = fs.s_to_samples(avg_rr * 2.0 / 3.0);
+            let avg_rr = self.avg_rr_samples(context);
 
             let cycles = self.cycles(context);
 
@@ -297,6 +284,7 @@ impl ProcessedSignal {
 
             let avg_qrs = &all_average[max_pos - avg_qrs_width..][..2 * avg_qrs_width];
 
+            let pre = avg_rr / 3;
             let avg_max_offset = max_pos as isize - pre as isize;
 
             let adjusted_idxs = cycle_idxs.map(|idx| {
@@ -311,14 +299,7 @@ impl ProcessedSignal {
             });
 
             adjusted_idxs
-                .filter_map(|idx| {
-                    filtered.samples.get(idx - pre..idx + post).map(|_| Cycle {
-                        samples: filtered.samples.clone(),
-                        start: idx - pre,
-                        position: idx,
-                        end: idx + post,
-                    })
-                })
+                .filter_map(|idx| Cycle::at(&filtered.samples, idx, avg_rr))
                 .collect::<Vec<_>>()
         })
     }
@@ -421,6 +402,13 @@ impl ProcessedSignal {
 
     pub fn avg_rr(&self, context: &Context) -> f64 {
         average(self.rr_intervals(context).iter().copied())
+    }
+
+    pub fn avg_rr_samples(&self, context: &Context) -> usize {
+        let filtered = self.filtered_ekg(context);
+
+        let fs = (filtered.fs as f32).sps();
+        fs.s_to_samples(self.avg_rr(context) as f32)
     }
 
     pub fn adjusted_avg_rr(&self, context: &Context) -> f64 {

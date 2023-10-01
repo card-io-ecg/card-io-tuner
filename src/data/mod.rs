@@ -65,6 +65,18 @@ pub struct Cycle {
 }
 
 impl Cycle {
+    pub fn at(samples: &Arc<[f32]>, idx: usize, rr_samples: usize) -> Option<Self> {
+        let pre = rr_samples / 3;
+        let post = rr_samples * 2 / 3;
+
+        samples.get(idx - pre..idx + post).map(|_| Cycle {
+            samples: samples.clone(),
+            start: idx - pre,
+            position: idx,
+            end: idx + post,
+        })
+    }
+
     pub fn as_slice(&self) -> &[f32] {
         &self.samples[self.start..self.end]
     }
