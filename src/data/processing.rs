@@ -285,7 +285,7 @@ impl ProcessedSignal {
 
     pub fn average_adjusted_cycle(&self, context: &Context) -> Ref<'_, Cycle> {
         self.average_cycle.get(|| {
-            log::debug!("Data::average_cycle");
+            log::debug!("Data::majority_cycle");
             let adjusted_cycles = self.adjusted_cycles(context);
 
             let avg = average_cycle(adjusted_cycles.iter().map(|cycle| cycle.as_slice()));
@@ -303,7 +303,6 @@ impl ProcessedSignal {
         self.classified_cycles.get(|| {
             log::debug!("Data::classified_cycles");
 
-            log::debug!("Data::majority_cycle");
             let adjusted_cycles = self.adjusted_cycles(context);
 
             let avg = self.average_adjusted_cycle(context);
