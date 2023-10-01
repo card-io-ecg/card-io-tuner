@@ -304,7 +304,7 @@ impl ProcessedSignal {
         })
     }
 
-    pub fn average_cycle(&self, context: &Context) -> Ref<'_, Cycle> {
+    pub fn average_adjusted_cycle(&self, context: &Context) -> Ref<'_, Cycle> {
         self.average_cycle.get(|| {
             log::debug!("Data::average_cycle");
             let adjusted_cycles = self.adjusted_cycles(context);
@@ -340,7 +340,7 @@ impl ProcessedSignal {
             log::debug!("Data::majority_cycle");
             let adjusted_cycles = self.adjusted_cycles(context);
 
-            let avg = self.average_cycle(context);
+            let avg = self.average_adjusted_cycle(context);
 
             let autocorr = cross_correlate(avg.as_slice(), avg.as_slice());
 
