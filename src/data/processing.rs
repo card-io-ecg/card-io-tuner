@@ -264,7 +264,7 @@ impl ProcessedSignal {
             let all_average = average_cycle(cycles.iter().map(|cycle| cycle.as_slice()));
 
             // For QRS adjustment, we're using the 50-50 ms window around the peak of the QRS
-            let avg_qrs_width = fs.ms_to_samples(25.0);
+            let avg_qrs_width = fs.ms_to_samples(40.0);
             let max_pos = max_pos(&all_average).unwrap();
 
             let avg_qrs = &all_average[max_pos - avg_qrs_width..max_pos + avg_qrs_width];
@@ -277,7 +277,6 @@ impl ProcessedSignal {
                 .filter_map(|cycle| cycle.offset(avg_max_offset))
                 .filter_map(|cycle| {
                     let offset_to_avg = adjust_time(cycle.middle(avg_qrs.len()), &avg_qrs);
-
                     cycle.offset(offset_to_avg)
                 })
                 .collect::<Vec<_>>()

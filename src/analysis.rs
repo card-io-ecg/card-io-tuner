@@ -45,8 +45,8 @@ pub fn adjust_time(cycle: &[f32], average: &[f32]) -> isize {
         }
     }
 
-    let width = average.len() as isize;
-    offset - width
+    let diff = cycle.len() as isize - average.len() as isize;
+    offset - diff / 2
 }
 
 pub fn average(iter: impl Iterator<Item = f64>) -> f64 {
