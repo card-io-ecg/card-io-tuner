@@ -8,7 +8,7 @@ use egui_dock::{DockArea, DockState, NodeIndex, Style};
 use egui_plot::{AxisBools, GridInput, GridMark, Legend, Line, MarkerShape, PlotPoints, Points};
 
 use crate::{
-    data::{Cycle, Data},
+    data::{Classification, Cycle, Data},
     AppContext, AppTab,
 };
 
@@ -270,7 +270,7 @@ impl SignalSubTab for EkgTab {
         {
             let hr_data = data.hrs();
             let ekg_data = data.filtered_ekg();
-            let adjusted_cycles = data.adjusted_cycles();
+            let classified_cycles = data.classified_cycles();
 
             let chunk = data.config().row_width.max(1);
 
@@ -357,12 +357,25 @@ impl SignalSubTab for EkgTab {
                 // );
 
                 signals.push_points(
-                    adjusted_cycles
+                    classified_cycles
                         .iter()
-                        .map(|cycle| cycle.position)
+                        .filter_map(|(cycle, classification)| {
+                            (*classification == Classification::Normal).then_some(cycle.position)
+                        })
                         .map(|idx| (idx, ekg_data.samples[idx] as f64)),
                     Color32::LIGHT_GREEN,
                     format!("HR: {}", data.avg_hr().round() as i32),
+                );
+
+                signals.push_points(
+                    classified_cycles
+                        .iter()
+                        .filter_map(|(cycle, classification)| {
+                            (*classification == Classification::Artifact).then_some(cycle.position)
+                        })
+                        .map(|idx| (idx, ekg_data.samples[idx] as f64)),
+                    Color32::LIGHT_RED,
+                    "Artifacts",
                 );
 
                 idx += ekg.len();

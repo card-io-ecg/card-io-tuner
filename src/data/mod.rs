@@ -147,6 +147,7 @@ impl Data {
     query!(adjusted_rr_intervals: Vec<f64>);
     query!(cycles: Vec<Cycle>);
     query!(adjusted_cycles: Vec<Cycle>);
+    query!(classified_cycles: Vec<(Cycle, Classification)>);
     query!(average_adjusted_cycle: Cycle);
     query!(majority_cycle: Cycle);
 
