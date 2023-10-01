@@ -58,3 +58,19 @@ pub fn average(iter: impl Iterator<Item = f64>) -> f64 {
 pub fn similarity(corr: f32, max_corr: f32) -> f32 {
     1.0 - (1.0 - corr / max_corr).abs()
 }
+
+pub fn max_pos(avg: &[f32]) -> Option<usize> {
+    let mut max = f32::NEG_INFINITY;
+
+    avg.iter()
+        .enumerate()
+        .filter_map(|(idx, y)| {
+            max = max.max(*y);
+            if *y == max {
+                Some(idx)
+            } else {
+                None
+            }
+        })
+        .last()
+}

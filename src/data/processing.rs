@@ -14,7 +14,7 @@ use signal_processing::{
 };
 
 use crate::{
-    analysis::{adjust_time, average, average_cycle, cross_correlate, similarity},
+    analysis::{adjust_time, average, average_cycle, cross_correlate, max_pos, similarity},
     data::{cell::DataCell, Classification, Cycle, Ekg},
 };
 
@@ -265,22 +265,7 @@ impl ProcessedSignal {
 
             // For QRS adjustment, we're using the 50-50 ms window around the peak of the QRS
             let avg_qrs_width = fs.ms_to_samples(25.0);
-            let mut max = f32::NEG_INFINITY;
-            let max_pos = all_average
-                .iter()
-                .enumerate()
-                .skip(avg_qrs_width)
-                .take(all_average.len() - 2 * avg_qrs_width)
-                .filter_map(|(idx, y)| {
-                    if *y > max {
-                        max = *y;
-                        Some(idx)
-                    } else {
-                        None
-                    }
-                })
-                .last()
-                .unwrap();
+            let max_pos = max_pos(&all_average).unwrap();
 
             let avg_qrs = &all_average[max_pos - avg_qrs_width..max_pos + avg_qrs_width];
 
@@ -306,23 +291,8 @@ impl ProcessedSignal {
 
             let avg = average_cycle(adjusted_cycles.iter().map(|cycle| cycle.as_slice()));
 
-            let mut max = f32::NEG_INFINITY;
-            let max_pos = avg
-                .iter()
-                .enumerate()
-                .filter_map(|(idx, y)| {
-                    max = max.max(*y);
-                    if *y == max {
-                        Some(idx)
-                    } else {
-                        None
-                    }
-                })
-                .last()
-                .unwrap();
-
             Cycle {
-                position: max_pos,
+                position: max_pos(&avg).unwrap(),
                 start: 0,
                 end: avg.len(),
                 samples: Arc::from(avg),
@@ -397,23 +367,8 @@ impl ProcessedSignal {
                 adjusted_cycles.len(),
             );
 
-            let mut max = f32::NEG_INFINITY;
-            let max_pos = majority_cycle
-                .iter()
-                .enumerate()
-                .filter_map(|(idx, y)| {
-                    max = max.max(*y);
-                    if *y == max {
-                        Some(idx)
-                    } else {
-                        None
-                    }
-                })
-                .last()
-                .unwrap();
-
             Cycle {
-                position: max_pos,
+                position: max_pos(&majority_cycle).unwrap(),
                 start: 0,
                 end: majority_cycle.len(),
                 samples: Arc::from(majority_cycle),
