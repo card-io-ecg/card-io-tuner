@@ -15,7 +15,7 @@ use signal_processing::{
 
 use crate::{
     analysis::{adjust_time, average, average_cycle, cross_correlate, similarity},
-    data::{cell::DataCell, Cycle, Ekg},
+    data::{cell::DataCell, Classification, Cycle, Ekg},
 };
 
 pub struct HrData {
@@ -61,6 +61,7 @@ pub struct ProcessedSignal {
     hrs: DataCell<HrData>,
     cycles: DataCell<Vec<Cycle>>,
     adjusted_cycles: DataCell<Vec<Cycle>>,
+    classified_cycles: DataCell<Vec<(Cycle, Classification)>>,
     average_cycle: DataCell<Cycle>,
     majority_cycle: DataCell<Cycle>,
     rr_intervals: DataCell<Vec<f64>>,
@@ -76,6 +77,7 @@ impl ProcessedSignal {
             hrs: DataCell::new("hrs"),
             cycles: DataCell::new("cycles"),
             adjusted_cycles: DataCell::new("adjusted_cycles"),
+            classified_cycles: DataCell::new("classified_cycles"),
             average_cycle: DataCell::new("average_cycle"),
             majority_cycle: DataCell::new("majority_cycle"),
             rr_intervals: DataCell::new("rr_intervals"),
@@ -90,6 +92,7 @@ impl ProcessedSignal {
         self.hrs.clear();
         self.cycles.clear();
         self.adjusted_cycles.clear();
+        self.classified_cycles.clear();
         self.average_cycle.clear();
         self.majority_cycle.clear();
         self.rr_intervals.clear();
@@ -335,6 +338,39 @@ impl ProcessedSignal {
         })
     }
 
+    pub fn classified_cycles(&self, context: &Context) -> Ref<'_, Vec<(Cycle, Classification)>> {
+        self.classified_cycles.get(|| {
+            log::debug!("Data::classified_cycles");
+
+            log::debug!("Data::majority_cycle");
+            let adjusted_cycles = self.adjusted_cycles(context);
+
+            let avg = self.average_adjusted_cycle(context);
+
+            let autocorr = cross_correlate(avg.as_slice(), avg.as_slice());
+
+            const SIMILARITY_THRESHOLD: f32 = 0.8;
+
+            adjusted_cycles
+                .iter()
+                .map(|cycle| {
+                    (
+                        cycle.clone(),
+                        cross_correlate(cycle.as_slice(), avg.as_slice()),
+                    )
+                })
+                .map(|(cycle, xcorr)| (cycle, similarity(xcorr, autocorr)))
+                .map(|(cycle, similarity)| {
+                    if similarity > SIMILARITY_THRESHOLD {
+                        (cycle, Classification::Normal)
+                    } else {
+                        (cycle, Classification::Artifact)
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+    }
+
     pub fn majority_cycle(&self, context: &Context) -> Ref<'_, Cycle> {
         self.majority_cycle.get(|| {
             log::debug!("Data::majority_cycle");
@@ -343,20 +379,13 @@ impl ProcessedSignal {
             let avg = self.average_adjusted_cycle(context);
 
             let autocorr = cross_correlate(avg.as_slice(), avg.as_slice());
+            let classified_cycles = self.classified_cycles(context);
 
-            let similarities = adjusted_cycles
+            let similar_cycles = classified_cycles
                 .iter()
-                .map(|cycle| cross_correlate(cycle.as_slice(), avg.as_slice()))
-                .map(|xcorr| similarity(xcorr, autocorr))
-                .collect::<Vec<_>>();
-
-            const SIMILARITY_THRESHOLD: f32 = 0.8;
-
-            let similar_cycles = adjusted_cycles.iter().zip(similarities.iter()).filter_map(
-                |(cycle, similarity)| {
-                    (*similarity > SIMILARITY_THRESHOLD).then_some(cycle.as_slice())
-                },
-            );
+                .filter_map(|(cycle, classification)| {
+                    (*classification == Classification::Normal).then_some(cycle.as_slice())
+                });
 
             let majority_cycle = average_cycle(similar_cycles.clone());
 

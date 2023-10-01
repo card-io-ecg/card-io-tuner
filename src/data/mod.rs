@@ -82,6 +82,12 @@ impl Cycle {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Classification {
+    Normal,
+    Artifact,
+}
+
 pub struct Data {
     pub path: PathBuf,
     pub processed: ProcessedSignal,
