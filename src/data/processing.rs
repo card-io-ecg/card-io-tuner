@@ -69,6 +69,7 @@ pub struct ProcessedSignal {
     adjusted_cycles: DataCell<Vec<Cycle>>,
     classified_cycles: DataCell<Vec<Cycle>>,
     average_cycle: DataCell<Cycle>,
+    all_average_corr_coeffs: DataCell<Vec<f32>>,
     majority_cycle: DataCell<Cycle>,
     rr_intervals: DataCell<Vec<f32>>,
     adjusted_rr_intervals: DataCell<Vec<f32>>,
@@ -85,6 +86,7 @@ impl ProcessedSignal {
             adjusted_cycles: DataCell::new("adjusted_cycles"),
             classified_cycles: DataCell::new("classified_cycles"),
             average_cycle: DataCell::new("average_cycle"),
+            all_average_corr_coeffs: DataCell::new("all_average_corr_coeffs"),
             majority_cycle: DataCell::new("majority_cycle"),
             rr_intervals: DataCell::new("rr_intervals"),
             adjusted_rr_intervals: DataCell::new("adjusted_rr_intervals"),
@@ -100,6 +102,7 @@ impl ProcessedSignal {
         self.adjusted_cycles.clear();
         self.classified_cycles.clear();
         self.average_cycle.clear();
+        self.all_average_corr_coeffs.clear();
         self.majority_cycle.clear();
         self.rr_intervals.clear();
         self.adjusted_rr_intervals.clear();
@@ -294,19 +297,32 @@ impl ProcessedSignal {
         })
     }
 
-    pub fn classified_cycles(&self, context: &Context) -> Ref<'_, Vec<Cycle>> {
-        self.classified_cycles.get(|| {
-            log::debug!("Data::classified_cycles");
+    pub fn all_average_corr_coeffs(&self, context: &Context) -> Ref<'_, Vec<f32>> {
+        self.all_average_corr_coeffs.get(|| {
+            log::debug!("Data::all_average_corr_coeffs");
 
             let adjusted_cycles = self.adjusted_cycles(context);
-
             let avg = self.average_adjusted_cycle(context);
 
             adjusted_cycles
                 .iter()
-                .map(|cycle| (cycle.clone(), corr_coeff(cycle.as_slice(), avg.as_slice())))
+                .map(|cycle| corr_coeff(cycle.as_slice(), avg.as_slice()))
+                .collect::<Vec<_>>()
+        })
+    }
+
+    pub fn classified_cycles(&self, context: &Context) -> Ref<'_, Vec<Cycle>> {
+        self.classified_cycles.get(|| {
+            log::debug!("Data::classified_cycles");
+
+            let similarities = self.all_average_corr_coeffs(context);
+            let adjusted_cycles = self.adjusted_cycles(context);
+
+            adjusted_cycles
+                .iter()
+                .zip(similarities.iter())
                 .map(|(cycle, similarity)| {
-                    cycle.classify(if similarity > context.config.similarity_threshold {
+                    cycle.classify(if *similarity > context.config.similarity_threshold {
                         Classification::Normal
                     } else {
                         Classification::Artifact
