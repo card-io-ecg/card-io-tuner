@@ -333,13 +333,13 @@ impl ProcessedSignal {
         self.classified_cycles.get(|| {
             log::debug!("classified_cycles");
 
-            let adjusted_cycles = self.cycles(context);
+            let cycles = self.cycles(context);
 
             let coeff_mtx = self.cycle_corr_coeffs(context);
             let coeff_mtx_cols = (0..coeff_mtx.len())
                 .map(|col_idx| average(coeff_mtx.iter().map(|row| row[col_idx])));
 
-            let result = adjusted_cycles
+            let result = cycles
                 .iter()
                 .zip(coeff_mtx_cols)
                 .map(|(cycle, similarity)| {
@@ -372,10 +372,10 @@ impl ProcessedSignal {
             // TODO: this case can be avoided by using an adaptive similarity threshold based on clustering and artifact detection
             if majority_cycle.as_slice().is_empty() {
                 log::warn!("No similar cycles found");
-                return average_cycle(cycles.iter()).unwrap();
+                average_cycle(cycles.iter()).unwrap()
+            } else {
+                majority_cycle
             }
-
-            majority_cycle
         })
     }
 
