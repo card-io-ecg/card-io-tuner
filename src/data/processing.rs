@@ -119,14 +119,6 @@ impl ProcessedSignal {
             let fs = self.fs(context).raw();
             let mut samples = self.raw_ekg(context).samples().to_vec();
 
-            if context.config.pli {
-                let pli = PowerLineFilter::<AdaptationBlocking<Sum<1200>, 4, 19>, _, 1>::design(
-                    fs,
-                    [50.0],
-                );
-                apply_filter(&mut samples, pli);
-            }
-
             if context.config.high_pass {
                 let high_pass = DynIir::<HighPass, 2>::design(fs, 0.75);
                 apply_zero_phase_filter(&mut samples, high_pass);
@@ -135,6 +127,14 @@ impl ProcessedSignal {
             if context.config.low_pass {
                 let low_pass = DynIir::<LowPass, 2>::design(fs, 75.0);
                 apply_zero_phase_filter(&mut samples, low_pass);
+            }
+
+            if context.config.pli {
+                let pli = PowerLineFilter::<AdaptationBlocking<Sum<1200>, 4, 19>, _, 1>::design(
+                    fs,
+                    [50.0],
+                );
+                apply_filter(&mut samples, pli);
             }
 
             debias(&mut samples);
