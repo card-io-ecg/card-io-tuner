@@ -325,6 +325,14 @@ impl ProcessedSignal {
                 }
             }
 
+            // pretty-print matrix
+            // for row in result.iter() {
+            //     for col in row.iter() {
+            //         print!("{:.2} ", col);
+            //     }
+            //     println!();
+            // }
+
             result
         })
     }
