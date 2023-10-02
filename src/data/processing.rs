@@ -50,7 +50,7 @@ impl Default for Config {
             row_width: 6000,
             high_pass_cutoff: 0.75,
             low_pass_cutoff: 75.0,
-            similarity_threshold: 0.95,
+            similarity_threshold: 0.85,
         }
     }
 }
@@ -69,7 +69,7 @@ pub struct ProcessedSignal {
     adjusted_cycles: DataCell<Vec<Cycle>>,
     classified_cycles: DataCell<Vec<Cycle>>,
     average_cycle: DataCell<Cycle>,
-    all_average_corr_coeffs: DataCell<Vec<f32>>,
+    cycle_corr_coeffs: DataCell<Vec<Vec<f32>>>,
     majority_cycle: DataCell<Cycle>,
     rr_intervals: DataCell<Vec<f32>>,
     adjusted_rr_intervals: DataCell<Vec<f32>>,
@@ -86,7 +86,7 @@ impl ProcessedSignal {
             adjusted_cycles: DataCell::new("adjusted_cycles"),
             classified_cycles: DataCell::new("classified_cycles"),
             average_cycle: DataCell::new("average_cycle"),
-            all_average_corr_coeffs: DataCell::new("all_average_corr_coeffs"),
+            cycle_corr_coeffs: DataCell::new("cycle_corr_coeffs"),
             majority_cycle: DataCell::new("majority_cycle"),
             rr_intervals: DataCell::new("rr_intervals"),
             adjusted_rr_intervals: DataCell::new("adjusted_rr_intervals"),
@@ -102,7 +102,7 @@ impl ProcessedSignal {
         self.adjusted_cycles.clear();
         self.classified_cycles.clear();
         self.average_cycle.clear();
-        self.all_average_corr_coeffs.clear();
+        self.cycle_corr_coeffs.clear();
         self.majority_cycle.clear();
         self.rr_intervals.clear();
         self.adjusted_rr_intervals.clear();
@@ -298,17 +298,29 @@ impl ProcessedSignal {
         })
     }
 
-    pub fn all_average_corr_coeffs(&self, context: &Context) -> Ref<'_, Vec<f32>> {
-        self.all_average_corr_coeffs.get(|| {
-            log::debug!("all_average_corr_coeffs");
+    pub fn cycle_corr_coeffs(&self, context: &Context) -> Ref<'_, Vec<Vec<f32>>> {
+        self.cycle_corr_coeffs.get(|| {
+            log::debug!("cycle_corr_coeffs");
 
             let adjusted_cycles = self.adjusted_cycles(context);
-            let avg = self.average_adjusted_cycle(context);
 
-            adjusted_cycles
+            let result = adjusted_cycles
                 .iter()
-                .map(|cycle| corr_coeff(cycle.as_slice(), avg.as_slice()))
-                .collect::<Vec<_>>()
+                .map(|cycle| {
+                    adjusted_cycles
+                        .iter()
+                        .map(|other| {
+                            if other.position == cycle.position {
+                                1.0
+                            } else {
+                                corr_coeff(cycle.as_slice(), other.as_slice())
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+
+            result
         })
     }
 
@@ -316,14 +328,17 @@ impl ProcessedSignal {
         self.classified_cycles.get(|| {
             log::debug!("classified_cycles");
 
-            let similarities = self.all_average_corr_coeffs(context);
             let adjusted_cycles = self.adjusted_cycles(context);
+
+            let coeff_mtx = self.cycle_corr_coeffs(context);
+            let coeff_mtx_cols = (0..coeff_mtx.len())
+                .map(|col_idx| average(coeff_mtx.iter().map(|row| row[col_idx])));
 
             let result = adjusted_cycles
                 .iter()
-                .zip(similarities.iter())
+                .zip(coeff_mtx_cols)
                 .map(|(cycle, similarity)| {
-                    cycle.classify(if *similarity > context.config.similarity_threshold {
+                    cycle.classify(if similarity > context.config.similarity_threshold {
                         Classification::Normal
                     } else {
                         Classification::Artifact

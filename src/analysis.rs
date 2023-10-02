@@ -1,3 +1,5 @@
+use rustfft::num_traits::Float;
+
 use crate::data::Cycle;
 
 pub fn corr_coeff(cycle: &[f32], avg: &[f32]) -> f32 {
@@ -66,10 +68,10 @@ pub fn adjust_time(cycle: &[f32], average: &[f32]) -> isize {
     offset - diff / 2
 }
 
-pub fn average(iter: impl Iterator<Item = f64>) -> f64 {
-    let (count, sum) = iter.fold((0, 0.0), |(count, sum), y| (count + 1, sum + y));
+pub fn average<F: Float>(iter: impl Iterator<Item = F>) -> F {
+    let (count, sum) = iter.fold((0, F::zero()), |(count, sum), y| (count + 1, sum + y));
 
-    sum / count as f64
+    sum / F::from(count).unwrap()
 }
 
 pub fn max_pos(avg: &[f32]) -> Option<usize> {
