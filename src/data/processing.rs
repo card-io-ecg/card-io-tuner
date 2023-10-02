@@ -343,12 +343,9 @@ impl ProcessedSignal {
             let adjusted_cycles = self.adjusted_cycles(context);
 
             let avg = self.average_adjusted_cycle(context);
-
             let classified_cycles = self.classified_cycles(context);
 
-            let similar_cycles = classified_cycles
-                .iter()
-                .filter_map(|cycle| cycle.is_normal().then_some(cycle));
+            let similar_cycles = classified_cycles.iter().filter(|cycle| cycle.is_normal());
 
             let majority_cycle = average_cycle(similar_cycles.clone()).unwrap_or_else(|| {
                 log::warn!("Defaulting to the average cycle");
