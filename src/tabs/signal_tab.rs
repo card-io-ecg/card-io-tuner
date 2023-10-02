@@ -6,6 +6,7 @@ use eframe::{
 };
 use egui_dock::{DockArea, DockState, NodeIndex, Style};
 use egui_plot::{AxisBools, GridInput, GridMark, Legend, Line, MarkerShape, PlotPoints, Points};
+use signal_processing::heart_rate::SamplingFrequency;
 
 use crate::{
     data::{Cycle, Data},
@@ -18,13 +19,13 @@ struct SignalCharts<'a> {
     lines: &'a mut Vec<Line>,
     points: &'a mut Vec<Points>,
     offset: f64,
-    fs: f64,
+    fs: SamplingFrequency,
     samples: Range<usize>,
 }
 
 impl SignalCharts<'_> {
     fn to_point(&self, (x, y): (usize, f64)) -> [f64; 2] {
-        [x as f64 / self.fs, y - self.offset]
+        [self.fs.samples_to_s(x) as f64, y - self.offset]
     }
 
     fn push(
@@ -278,6 +279,8 @@ impl SignalSubTab for EkgTab {
             let threshold = hr_data.thresholds.chunks(chunk);
             let complex_lead = hr_data.complex_lead.chunks(chunk);
 
+            let fs = data.fs();
+
             for (ekg, (threshold, complex_lead)) in ekg.zip(threshold.zip(complex_lead)) {
                 let (min, max) = ekg
                     .iter()
@@ -293,7 +296,7 @@ impl SignalSubTab for EkgTab {
                     lines: &mut lines,
                     points: &mut points,
                     offset,
-                    fs: ekg_data.fs,
+                    fs,
                     samples: idx..idx + ekg.len(),
                 };
 
@@ -301,7 +304,7 @@ impl SignalSubTab for EkgTab {
                     marker_added = true;
                     // to nearest 1mV
                     let marker_y =
-                        ((max as f64 - offset) * ekg_data.fs).floor() / ekg_data.fs - 0.001;
+                        fs.samples_to_s(fs.s_to_samples(max - offset as f32)) as f64 - 0.001;
                     let marker_x = -0.2;
 
                     signals.lines.push(
@@ -423,7 +426,7 @@ impl SignalSubTab for FftTab {
         let fft = {
             let fft = data.fft();
 
-            let x_scale = data.filtered_ekg().fs / fft.len() as f64;
+            let x_scale = data.fs().raw() as f64 / fft.len() as f64;
 
             Line::new(
                 fft.iter()
@@ -473,14 +476,14 @@ impl SignalSubTab for HrvTab {
     }
 
     fn display(&mut self, ui: &mut Ui, data: &mut Data) {
-        let fs = data.filtered_ekg().fs;
+        let fs = data.fs();
         let hr_data = data.adjusted_cycles();
 
         // Poincare plot to visualize heart-rate variability
         let rrs = hr_data
             .iter()
             .map(|cycle| cycle.position)
-            .map_windows(|[x, y]| ((*y - *x) as f64 / fs) * 1000.0);
+            .map_windows(|[x, y]| fs.samples_to_s(*y - *x) as f64 * 1000.0);
 
         let (min_rr, max_rr) = rrs
             .clone()
@@ -532,15 +535,17 @@ impl SignalSubTab for CycleTab {
     fn display(&mut self, ui: &mut Ui, data: &mut Data) {
         let mut lines = vec![];
 
-        let fs = data.filtered_ekg().fs;
+        let fs = data.fs();
         let mut add_cycle = |cycle: &Cycle, name: &str, color: Color32| {
+            let offset = fs.samples_to_s(cycle.position) as f64;
             lines.push(
                 Line::new(
                     cycle
                         .as_slice()
                         .iter()
                         .enumerate()
-                        .map(|(x, y)| [(x as f64 - cycle.position as f64) / fs, *y as f64])
+                        .map(|(x, y)| (fs.samples_to_s(x) as f64, *y as f64))
+                        .map(|(x, y)| [x - offset, y])
                         .collect::<PlotPoints>(),
                 )
                 .color(color)

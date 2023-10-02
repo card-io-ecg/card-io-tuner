@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use signal_processing::compressing_buffer::EkgFormat;
+use signal_processing::{compressing_buffer::EkgFormat, heart_rate::SamplingFrequency};
 
 use crate::{
     analysis::max_pos,
@@ -21,6 +21,8 @@ mod standard;
 pub struct Ekg {
     pub samples: Arc<[f32]>,
     pub fs: f64,
+    pub ignore_start: usize,
+    pub ignore_end: usize,
 }
 
 impl Ekg {
@@ -52,10 +54,20 @@ impl Ekg {
 
         log::debug!("Loaded {} samples", samples.len());
 
-        Ok(Self {
-            fs: 1000.0,
+        Ok(Self::new(1000.0, samples))
+    }
+
+    pub fn samples(&self) -> &[f32] {
+        &self.samples[self.ignore_start..self.samples.len() - self.ignore_end]
+    }
+
+    fn new(fs: f64, samples: Vec<f32>) -> Ekg {
+        Self {
+            fs,
             samples: Arc::from(samples),
-        })
+            ignore_start: 0,
+            ignore_end: 0,
+        }
     }
 }
 
@@ -193,8 +205,8 @@ impl Data {
     query!(filtered_ekg: Ekg);
     query!(fft: Vec<f32>);
     query!(hrs: HrData);
-    query!(rr_intervals: Vec<f64>);
-    query!(adjusted_rr_intervals: Vec<f64>);
+    query!(rr_intervals: Vec<f32>);
+    query!(adjusted_rr_intervals: Vec<f32>);
     query!(cycles: Vec<Cycle>);
     query!(adjusted_cycles: Vec<Cycle>);
     query!(classified_cycles: Vec<Cycle>);
@@ -203,6 +215,10 @@ impl Data {
 
     pub fn avg_hr(&self) -> f64 {
         self.processed.avg_hr(&self.context)
+    }
+
+    pub fn fs(&self) -> SamplingFrequency {
+        self.processed.fs(&self.context)
     }
 
     pub fn clear_processed(&mut self) {

@@ -1,4 +1,4 @@
-use std::{cell::Ref, sync::Arc};
+use std::cell::Ref;
 
 use rustfft::num_complex::{Complex, ComplexFloat};
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,7 @@ use signal_processing::{
         pli::{adaptation_blocking::AdaptationBlocking, PowerLineFilter},
         Filter,
     },
-    heart_rate::{HeartRateCalculator, SamplingFrequencyExt, Thresholds},
+    heart_rate::{HeartRateCalculator, SamplingFrequency, SamplingFrequencyExt, Thresholds},
     moving::sum::Sum,
 };
 
@@ -64,8 +64,8 @@ pub struct ProcessedSignal {
     classified_cycles: DataCell<Vec<Cycle>>,
     average_cycle: DataCell<Cycle>,
     majority_cycle: DataCell<Cycle>,
-    rr_intervals: DataCell<Vec<f64>>,
-    adjusted_rr_intervals: DataCell<Vec<f64>>,
+    rr_intervals: DataCell<Vec<f32>>,
+    adjusted_rr_intervals: DataCell<Vec<f32>>,
 }
 
 impl ProcessedSignal {
@@ -102,16 +102,12 @@ impl ProcessedSignal {
     pub fn raw_ekg(&self, context: &Context) -> Ref<'_, Ekg> {
         self.raw_ekg.get(|| {
             log::debug!("Data::raw_ekg");
-            let ignore_start = context.config.ignored_start;
-            let ignore_end = context.config.ignored_end;
-
-            let sample_count = context.raw_ekg.samples.len();
 
             Ekg {
-                samples: Arc::from(
-                    context.raw_ekg.samples[ignore_start..sample_count - ignore_end].to_vec(),
-                ),
+                samples: context.raw_ekg.samples.clone(),
                 fs: context.raw_ekg.fs,
+                ignore_start: context.config.ignored_start,
+                ignore_end: context.config.ignored_end,
             }
         })
     }
@@ -120,8 +116,8 @@ impl ProcessedSignal {
         self.filtered_ekg.get(|| {
             log::debug!("Data::filtered_ekg");
 
-            let fs = context.raw_ekg.fs as f32;
-            let mut samples = self.raw_ekg(context).samples.to_vec();
+            let fs = self.fs(context).raw();
+            let mut samples = self.raw_ekg(context).samples().to_vec();
 
             if context.config.pli {
                 let pli = PowerLineFilter::<AdaptationBlocking<Sum<1200>, 4, 19>, _, 1>::design(
@@ -143,10 +139,7 @@ impl ProcessedSignal {
 
             debias(&mut samples);
 
-            Ekg {
-                samples: Arc::from(samples),
-                fs: context.raw_ekg.fs,
-            }
+            Ekg::new(context.raw_ekg.fs, samples)
         })
     }
 
@@ -155,7 +148,7 @@ impl ProcessedSignal {
             log::debug!("Data::fft");
             let mut samples = self
                 .filtered_ekg(context)
-                .samples
+                .samples()
                 .iter()
                 .copied()
                 .map(|y| Complex { re: y, im: 0.0 })
@@ -174,13 +167,14 @@ impl ProcessedSignal {
         self.hrs.get(|| {
             log::debug!("Data::hrs");
             let filtered = self.filtered_ekg(context);
+            let fs = self.fs(context).raw();
 
-            let mut ekg = filtered.samples.to_vec();
+            let mut ekg = filtered.samples().to_vec();
 
-            let low_pass = DynIir::<LowPass, 2>::design(filtered.fs as f32, 20.0);
+            let low_pass = DynIir::<LowPass, 2>::design(fs, 20.0);
             apply_zero_phase_filter(&mut ekg, low_pass);
 
-            let mut calculator = HeartRateCalculator::new_alloc(filtered.fs as f32);
+            let mut calculator = HeartRateCalculator::new_alloc(fs);
 
             let mut qrs_idxs = Vec::new();
             let mut thresholds = Vec::new();
@@ -208,28 +202,28 @@ impl ProcessedSignal {
         })
     }
 
-    pub fn rr_intervals(&self, context: &Context) -> Ref<'_, Vec<f64>> {
+    pub fn rr_intervals(&self, context: &Context) -> Ref<'_, Vec<f32>> {
         self.rr_intervals.get(|| {
             log::debug!("Data::rr_intervals");
-            let fs = self.filtered_ekg(context).fs;
+            let fs = self.fs(context);
 
             self.hrs(context)
                 .detections
                 .iter()
-                .map_windows(move |[a, b]| (*b - *a) as f64 / fs)
+                .map_windows(move |[a, b]| fs.samples_to_s(*b - *a))
                 .collect()
         })
     }
 
-    pub fn adjusted_rr_intervals(&self, context: &Context) -> Ref<'_, Vec<f64>> {
+    pub fn adjusted_rr_intervals(&self, context: &Context) -> Ref<'_, Vec<f32>> {
         self.adjusted_rr_intervals.get(|| {
             log::debug!("Data::adjusted_rr_intervals");
-            let fs = self.filtered_ekg(context).fs;
+            let fs = self.fs(context);
 
             self.adjusted_cycles(context)
                 .iter()
                 .map(|cycle| cycle.position)
-                .map_windows(move |[a, b]| (*b - *a) as f64 / fs)
+                .map_windows(move |[a, b]| fs.samples_to_s(*b - *a))
                 .collect()
         })
     }
@@ -253,9 +247,8 @@ impl ProcessedSignal {
     pub fn adjusted_cycles(&self, context: &Context) -> Ref<'_, Vec<Cycle>> {
         self.adjusted_cycles.get(|| {
             log::debug!("Data::adjusted_cycles");
-            let filtered = self.filtered_ekg(context);
 
-            let fs = filtered.fs.sps();
+            let fs = self.fs(context);
 
             let avg_rr = self.avg_rr_samples(context);
 
@@ -363,22 +356,28 @@ impl ProcessedSignal {
     }
 
     pub fn avg_rr(&self, context: &Context) -> f64 {
-        average(self.rr_intervals(context).iter().copied())
+        average(self.rr_intervals(context).iter().map(|rr| *rr as f64))
     }
 
     pub fn avg_rr_samples(&self, context: &Context) -> usize {
-        let filtered = self.filtered_ekg(context);
-
-        let fs = (filtered.fs as f32).sps();
+        let fs = self.fs(context);
         fs.s_to_samples(self.avg_rr(context) as f32)
     }
 
     pub fn adjusted_avg_rr(&self, context: &Context) -> f64 {
-        average(self.adjusted_rr_intervals(context).iter().copied())
+        average(
+            self.adjusted_rr_intervals(context)
+                .iter()
+                .map(|rr| *rr as f64),
+        )
     }
 
     pub fn avg_hr(&self, context: &Context) -> f64 {
         60.0 / self.adjusted_avg_rr(context)
+    }
+
+    pub fn fs(&self, context: &Context) -> SamplingFrequency {
+        context.raw_ekg.fs.sps()
     }
 }
 

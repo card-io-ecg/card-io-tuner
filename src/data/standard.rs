@@ -1,4 +1,4 @@
-use std::{fs, io::Read, path::Path, sync::Arc};
+use std::{fs, io::Read, path::Path};
 
 use crate::data::Ekg;
 
@@ -27,10 +27,7 @@ pub fn load(file: &Path) -> Option<Ekg> {
         return None;
     }
 
-    Some(Ekg {
-        fs: header.fs as f64,
-        samples: Arc::from(samples),
-    })
+    Some(Ekg::new(header.fs as f64, samples))
 }
 
 #[derive(Clone, Debug)]
