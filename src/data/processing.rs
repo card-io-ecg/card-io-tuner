@@ -319,6 +319,7 @@ impl ProcessedSignal {
                 let mut row = enumerated_cycles.clone();
                 while let Some((y, cycle_b)) = row.next() {
                     let cc = corr_coeff(cycle_a.as_slice(), cycle_b.as_slice());
+                    debug_assert!(!cc.is_nan());
                     result[x][y] = cc;
                     result[y][x] = cc;
                 }

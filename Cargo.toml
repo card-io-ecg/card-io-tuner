@@ -30,3 +30,6 @@ embed-resource = "2.1"
 [features]
 default = ["debug"]
 debug = []
+
+[profile.test]
+opt-level = 3
