@@ -36,7 +36,9 @@ pub fn average_cycle<'a>(mut cycles: impl Iterator<Item = &'a Cycle>) -> Option<
         }
     }
 
+    let first_sample = average[0];
     for avg in average.iter_mut() {
+        *avg -= first_sample;
         *avg /= count as f32;
     }
 
