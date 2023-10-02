@@ -300,7 +300,7 @@ impl SignalSubTab for EkgTab {
         {
             let hr_data = data.hrs();
             let ekg_data = data.filtered_ekg();
-            let classified_cycles = data.classified_cycles();
+            let classified_cycles = data.adjusted_cycles();
 
             let chunk = data.config().row_width.max(1);
 
@@ -506,7 +506,7 @@ impl SignalSubTab for HrvTab {
 
     fn display(&mut self, ui: &mut Ui, data: &mut Data) {
         let fs = data.fs();
-        let cycles = data.classified_cycles();
+        let cycles = data.adjusted_cycles();
 
         // Poincare plot to visualize heart-rate variability
         let rrs = cycles

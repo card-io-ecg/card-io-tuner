@@ -46,7 +46,7 @@ pub fn average_cycle<'a>(mut cycles: impl Iterator<Item = &'a Cycle>) -> Option<
 
     let qrs = first.position - first.start;
 
-    let search_width = first.as_slice().len() / 10;
+    let search_width = first.as_slice().len() / 5;
     let search_start = qrs - search_width;
 
     let offset = max_pos(&average[search_start..][..2 * search_width]).unwrap_or(0);

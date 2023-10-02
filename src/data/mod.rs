@@ -218,8 +218,6 @@ impl Data {
     query!(adjusted_rr_intervals: Vec<f32>);
     query!(cycles: Vec<Cycle>);
     query!(adjusted_cycles: Vec<Cycle>);
-    query!(classified_cycles: Vec<Cycle>);
-    query!(average_adjusted_cycle: Cycle);
     query!(majority_cycle: Cycle);
 
     pub fn avg_hr(&self) -> f64 {
