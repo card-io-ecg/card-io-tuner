@@ -310,21 +310,19 @@ impl ProcessedSignal {
                     .unwrap_or(cycle.clone())
             });
 
-            let result = cycles
-                .clone()
-                .map(|cycle| {
-                    cycles
-                        .clone()
-                        .map(|other| {
-                            if other.position == cycle.position {
-                                1.0
-                            } else {
-                                corr_coeff(cycle.as_slice(), other.as_slice())
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .collect::<Vec<_>>();
+            let mut result = vec![vec![0.0; cycles.len()]; cycles.len()];
+
+            let mut enumerated_cycles = cycles.enumerate();
+            while let Some((x, cycle_a)) = enumerated_cycles.next() {
+                result[x][x] = 1.0;
+
+                let mut row = enumerated_cycles.clone();
+                while let Some((y, cycle_b)) = row.next() {
+                    let cc = corr_coeff(cycle_a.as_slice(), cycle_b.as_slice());
+                    result[x][y] = cc;
+                    result[y][x] = cc;
+                }
+            }
 
             result
         })
