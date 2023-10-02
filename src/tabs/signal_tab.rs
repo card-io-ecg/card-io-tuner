@@ -9,7 +9,7 @@ use egui_plot::{AxisBools, GridInput, GridMark, Legend, Line, MarkerShape, PlotP
 use signal_processing::heart_rate::SamplingFrequency;
 
 use crate::{
-    data::{Cycle, Data},
+    data::{Classification, Cycle, Data},
     AppContext, AppTab,
 };
 
@@ -506,15 +506,23 @@ impl SignalSubTab for HrvTab {
 
     fn display(&mut self, ui: &mut Ui, data: &mut Data) {
         let fs = data.fs();
-        let hr_data = data.adjusted_cycles();
+        let cycles = data.classified_cycles();
 
         // Poincare plot to visualize heart-rate variability
-        let rrs = hr_data
+        let rrs = cycles
             .iter()
-            .map(|cycle| cycle.position)
-            .map_windows(|[x, y]| fs.samples_to_s(*y - *x) as f64 * 1000.0);
+            .map(|cycle| (cycle.position, cycle.classification))
+            .map_windows(|[(xp, xc), (yp, yc)]| {
+                let is_nn = *xc == Classification::Normal && *yc == Classification::Normal;
+                (is_nn, fs.samples_to_s(*yp - *xp) as f64 * 1000.0)
+            });
 
-        let (min_rr, max_rr) = rrs
+        let nns = rrs.clone().filter_map(|(is_nn, rr)| is_nn.then_some(rr));
+        let extras = rrs
+            .clone()
+            .filter_map(|(is_nn, rr)| is_nn.not().then_some(rr));
+
+        let (min_rr, max_rr) = nns
             .clone()
             .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), y| {
                 (min.min(y), max.max(y))
@@ -533,8 +541,18 @@ impl SignalSubTab for HrvTab {
             .boxed_zoom_pointer_button(PointerButton::Middle)
             .show(ui, |plot_ui| {
                 plot_ui.points(
-                    Points::new(rrs.map_windows(|[x, y]| [*x, *y]).collect::<PlotPoints>())
+                    Points::new(nns.map_windows(|[x, y]| [*x, *y]).collect::<PlotPoints>())
+                        .name("NN intervals")
                         .color(EKG_COLOR),
+                );
+                plot_ui.points(
+                    Points::new(
+                        extras
+                            .map_windows(|[x, y]| [*x, *y])
+                            .collect::<PlotPoints>(),
+                    )
+                    .name("Extras")
+                    .color(Color32::LIGHT_RED),
                 );
             });
     }
