@@ -8,10 +8,7 @@ use std::{
 
 use signal_processing::{compressing_buffer::EkgFormat, heart_rate::SamplingFrequency};
 
-use crate::{
-    analysis::max_pos,
-    data::processing::{Config, Context, HrData, ProcessedSignal},
-};
+use crate::data::processing::{Config, Context, HrData, ProcessedSignal};
 
 pub mod processing;
 
@@ -106,9 +103,9 @@ impl Cycle {
         })
     }
 
-    pub fn new_virtual(avg: Vec<f32>) -> Self {
+    pub fn new_virtual(avg: Vec<f32>, position: usize) -> Self {
         Self {
-            position: max_pos(&avg).unwrap(),
+            position,
             start: 0,
             end: avg.len(),
             samples: Arc::from(avg),
