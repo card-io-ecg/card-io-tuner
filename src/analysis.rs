@@ -2,23 +2,26 @@ use rustfft::num_traits::Float;
 
 use crate::data::Cycle;
 
+/// Pearson correlation coefficient
+///
+/// https://en.wikipedia.org/wiki/Pearson_correlation_coefficient
 pub fn corr_coeff(cycle: &[f32], avg: &[f32]) -> f32 {
     let mean_cycle = average(cycle.iter().map(|x| *x as f64)) as f32;
     let mean_avg = average(avg.iter().map(|x| *x as f64)) as f32;
 
-    let mut sum1 = 0.0;
-    let mut sum2 = 0.0;
-    let mut sum3 = 0.0;
+    let mut covariance = 0.0;
+    let mut sd_cycle = 0.0;
+    let mut sd_avg = 0.0;
 
     for (sample, avg_sample) in cycle.iter().zip(avg.iter()) {
-        let diff1 = sample - mean_cycle;
-        let diff2 = avg_sample - mean_avg;
-        sum1 += diff1 * diff2;
-        sum2 += diff1 * diff1;
-        sum3 += diff2 * diff2;
+        let d_cycle = sample - mean_cycle;
+        let d_avg = avg_sample - mean_avg;
+        covariance += d_cycle * d_avg;
+        sd_cycle += d_cycle * d_cycle;
+        sd_avg += d_avg * d_avg;
     }
 
-    sum1 / (sum2 * sum3).sqrt()
+    covariance / (sd_cycle * sd_avg).sqrt()
 }
 
 pub fn average_cycle<'a>(mut cycles: impl Iterator<Item = &'a Cycle>) -> Option<Cycle> {
