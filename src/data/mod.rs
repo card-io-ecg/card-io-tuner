@@ -7,7 +7,10 @@ use std::{
 
 use signal_processing::compressing_buffer::EkgFormat;
 
-use crate::data::processing::{Config, Context, HrData, ProcessedSignal};
+use crate::{
+    analysis::max_pos,
+    data::processing::{Config, Context, HrData, ProcessedSignal},
+};
 
 pub mod processing;
 
@@ -62,6 +65,7 @@ pub struct Cycle {
     pub start: usize,
     pub position: usize,
     pub end: usize,
+    pub classification: Classification,
 }
 
 impl Cycle {
@@ -74,7 +78,29 @@ impl Cycle {
             start: idx - pre,
             position: idx,
             end: idx + post,
+            classification: Classification::Normal,
         })
+    }
+
+    fn new_virtual(avg: Vec<f32>) -> Self {
+        Self {
+            position: max_pos(&avg).unwrap(),
+            start: 0,
+            end: avg.len(),
+            samples: Arc::from(avg),
+            classification: Classification::Normal,
+        }
+    }
+
+    pub fn classify(&self, classification: Classification) -> Self {
+        Self {
+            classification,
+            ..self.clone()
+        }
+    }
+
+    pub fn is_normal(&self) -> bool {
+        self.classification == Classification::Normal
     }
 
     pub fn as_slice(&self) -> &[f32] {
@@ -101,6 +127,7 @@ impl Cycle {
                 start: start as usize,
                 position: (self.position as isize + offset) as usize,
                 end: end as usize,
+                classification: self.classification,
             })
     }
 }
@@ -170,7 +197,7 @@ impl Data {
     query!(adjusted_rr_intervals: Vec<f64>);
     query!(cycles: Vec<Cycle>);
     query!(adjusted_cycles: Vec<Cycle>);
-    query!(classified_cycles: Vec<(Cycle, Classification)>);
+    query!(classified_cycles: Vec<Cycle>);
     query!(average_adjusted_cycle: Cycle);
     query!(majority_cycle: Cycle);
 

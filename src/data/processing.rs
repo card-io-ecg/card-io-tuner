@@ -61,7 +61,7 @@ pub struct ProcessedSignal {
     hrs: DataCell<HrData>,
     cycles: DataCell<Vec<Cycle>>,
     adjusted_cycles: DataCell<Vec<Cycle>>,
-    classified_cycles: DataCell<Vec<(Cycle, Classification)>>,
+    classified_cycles: DataCell<Vec<Cycle>>,
     average_cycle: DataCell<Cycle>,
     majority_cycle: DataCell<Cycle>,
     rr_intervals: DataCell<Vec<f64>>,
@@ -290,16 +290,11 @@ impl ProcessedSignal {
 
             let avg = average_cycle(adjusted_cycles.iter().map(|cycle| cycle.as_slice()));
 
-            Cycle {
-                position: max_pos(&avg).unwrap(),
-                start: 0,
-                end: avg.len(),
-                samples: Arc::from(avg),
-            }
+            Cycle::new_virtual(avg)
         })
     }
 
-    pub fn classified_cycles(&self, context: &Context) -> Ref<'_, Vec<(Cycle, Classification)>> {
+    pub fn classified_cycles(&self, context: &Context) -> Ref<'_, Vec<Cycle>> {
         self.classified_cycles.get(|| {
             log::debug!("Data::classified_cycles");
 
@@ -321,11 +316,11 @@ impl ProcessedSignal {
                 })
                 .map(|(cycle, xcorr)| (cycle, similarity(xcorr, autocorr)))
                 .map(|(cycle, similarity)| {
-                    if similarity > SIMILARITY_THRESHOLD {
-                        (cycle, Classification::Normal)
+                    cycle.classify(if similarity > SIMILARITY_THRESHOLD {
+                        Classification::Normal
                     } else {
-                        (cycle, Classification::Artifact)
-                    }
+                        Classification::Artifact
+                    })
                 })
                 .collect::<Vec<_>>()
         })
@@ -343,9 +338,7 @@ impl ProcessedSignal {
 
             let similar_cycles = classified_cycles
                 .iter()
-                .filter_map(|(cycle, classification)| {
-                    (*classification == Classification::Normal).then_some(cycle.as_slice())
-                });
+                .filter_map(|cycle| cycle.is_normal().then_some(cycle.as_slice()));
 
             let majority_cycle = average_cycle(similar_cycles.clone());
 
@@ -365,12 +358,7 @@ impl ProcessedSignal {
                 adjusted_cycles.len(),
             );
 
-            Cycle {
-                position: max_pos(&majority_cycle).unwrap(),
-                start: 0,
-                end: majority_cycle.len(),
-                samples: Arc::from(majority_cycle),
-            }
+            Cycle::new_virtual(majority_cycle)
         })
     }
 

@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::ops::{Not, Range};
 
 use eframe::{
     egui::{DragValue, Grid, Id, PointerButton, Ui, WidgetText},
@@ -8,7 +8,7 @@ use egui_dock::{DockArea, DockState, NodeIndex, Style};
 use egui_plot::{AxisBools, GridInput, GridMark, Legend, Line, MarkerShape, PlotPoints, Points};
 
 use crate::{
-    data::{Classification, Cycle, Data},
+    data::{Cycle, Data},
     AppContext, AppTab,
 };
 
@@ -359,9 +359,7 @@ impl SignalSubTab for EkgTab {
                 signals.push_points(
                     classified_cycles
                         .iter()
-                        .filter_map(|(cycle, classification)| {
-                            (*classification == Classification::Normal).then_some(cycle.position)
-                        })
+                        .filter_map(|cycle| cycle.is_normal().then_some(cycle.position))
                         .map(|idx| (idx, ekg_data.samples[idx] as f64)),
                     Color32::LIGHT_GREEN,
                     format!("HR: {}", data.avg_hr().round() as i32),
@@ -370,9 +368,7 @@ impl SignalSubTab for EkgTab {
                 signals.push_points(
                     classified_cycles
                         .iter()
-                        .filter_map(|(cycle, classification)| {
-                            (*classification == Classification::Artifact).then_some(cycle.position)
-                        })
+                        .filter_map(|cycle| cycle.is_normal().not().then_some(cycle.position))
                         .map(|idx| (idx, ekg_data.samples[idx] as f64)),
                     Color32::LIGHT_RED,
                     "Artifacts",
