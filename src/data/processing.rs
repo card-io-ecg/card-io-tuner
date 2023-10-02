@@ -14,7 +14,7 @@ use signal_processing::{
 };
 
 use crate::{
-    analysis::{adjust_time, average, average_cycle, corr_coeff, max_pos},
+    analysis::{adjust_time, average, average_cycle, corr_coeff},
     data::{cell::DataCell, Classification, Cycle, Ekg},
 };
 
@@ -110,7 +110,7 @@ impl ProcessedSignal {
 
     pub fn raw_ekg(&self, context: &Context) -> Ref<'_, Ekg> {
         self.raw_ekg.get(|| {
-            log::debug!("Data::raw_ekg");
+            log::debug!("raw_ekg");
 
             Ekg {
                 samples: context.raw_ekg.samples.clone(),
@@ -123,7 +123,7 @@ impl ProcessedSignal {
 
     pub fn filtered_ekg(&self, context: &Context) -> Ref<'_, Ekg> {
         self.filtered_ekg.get(|| {
-            log::debug!("Data::filtered_ekg");
+            log::debug!("filtered_ekg");
 
             let fs = self.fs(context).raw();
             let mut samples = self.raw_ekg(context).samples().to_vec();
@@ -155,7 +155,7 @@ impl ProcessedSignal {
 
     pub fn fft(&self, context: &Context) -> Ref<'_, Vec<f32>> {
         self.fft.get(|| {
-            log::debug!("Data::fft");
+            log::debug!("fft");
             let mut samples = self
                 .filtered_ekg(context)
                 .samples()
@@ -175,7 +175,7 @@ impl ProcessedSignal {
 
     pub fn hrs(&self, context: &Context) -> Ref<'_, HrData> {
         self.hrs.get(|| {
-            log::debug!("Data::hrs");
+            log::debug!("hrs");
             let filtered = self.filtered_ekg(context);
             let fs = self.fs(context).raw();
 
@@ -214,7 +214,7 @@ impl ProcessedSignal {
 
     pub fn rr_intervals(&self, context: &Context) -> Ref<'_, Vec<f32>> {
         self.rr_intervals.get(|| {
-            log::debug!("Data::rr_intervals");
+            log::debug!("rr_intervals");
             let fs = self.fs(context);
 
             self.hrs(context)
@@ -227,7 +227,7 @@ impl ProcessedSignal {
 
     pub fn adjusted_rr_intervals(&self, context: &Context) -> Ref<'_, Vec<f32>> {
         self.adjusted_rr_intervals.get(|| {
-            log::debug!("Data::adjusted_rr_intervals");
+            log::debug!("adjusted_rr_intervals");
             let fs = self.fs(context);
 
             self.adjusted_cycles(context)
@@ -240,66 +240,67 @@ impl ProcessedSignal {
 
     pub fn cycles(&self, context: &Context) -> Ref<'_, Vec<Cycle>> {
         self.cycles.get(|| {
-            log::debug!("Data::cycles");
+            log::debug!("cycles");
             let filtered = self.filtered_ekg(context);
             let hrs = self.hrs(context);
 
             let avg_rr = self.avg_rr_samples(context);
 
-            hrs.detections
+            let result = hrs
+                .detections
                 .iter()
                 .copied()
                 .filter_map(|idx| Cycle::at(&filtered.samples, idx, avg_rr))
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>();
+
+            log::debug!("cycles: Processed {} cycles", result.len());
+
+            result
         })
     }
 
     pub fn adjusted_cycles(&self, context: &Context) -> Ref<'_, Vec<Cycle>> {
         self.adjusted_cycles.get(|| {
-            log::debug!("Data::adjusted_cycles");
+            log::debug!("adjusted_cycles");
 
             let fs = self.fs(context);
-
-            let avg_rr = self.avg_rr_samples(context);
-
             let cycles = self.cycles(context);
 
-            let all_average = average_cycle(cycles.iter().map(|cycle| cycle.as_slice()));
+            let result = if let Some(all_average) = average_cycle(cycles.iter()) {
+                log::debug!("Average cycle: {:?}", all_average);
 
-            // For QRS adjustment, we're using a smaller window around the peak of the QRS
-            let avg_qrs_width = fs.ms_to_samples(40.0);
-            let max_pos = max_pos(&all_average).unwrap();
+                // For QRS adjustment, we're using a smaller window around the peak of the QRS
+                let avg_qrs_width = fs.ms_to_samples(40.0);
+                let avg_qrs = all_average.middle(avg_qrs_width);
+                cycles
+                    .iter()
+                    .filter_map(|cycle| {
+                        let offset_to_avg = adjust_time(cycle.middle(avg_qrs.len()), &avg_qrs);
+                        cycle.offset(offset_to_avg)
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                vec![]
+            };
 
-            let avg_qrs = &all_average[max_pos - avg_qrs_width..max_pos + avg_qrs_width];
+            log::debug!("adjusted_cycles: Processed {} cycles", result.len());
 
-            let pre = avg_rr / 3;
-            let avg_max_offset = max_pos as isize - pre as isize;
-
-            cycles
-                .iter()
-                .filter_map(|cycle| cycle.offset(avg_max_offset))
-                .filter_map(|cycle| {
-                    let offset_to_avg = adjust_time(cycle.middle(avg_qrs.len()), &avg_qrs);
-                    cycle.offset(offset_to_avg)
-                })
-                .collect::<Vec<_>>()
+            result
         })
     }
 
     pub fn average_adjusted_cycle(&self, context: &Context) -> Ref<'_, Cycle> {
         self.average_cycle.get(|| {
-            log::debug!("Data::majority_cycle");
+            log::debug!("average_adjusted_cycle");
             let adjusted_cycles = self.adjusted_cycles(context);
 
-            let avg = average_cycle(adjusted_cycles.iter().map(|cycle| cycle.as_slice()));
-
-            Cycle::new_virtual(avg)
+            average_cycle(adjusted_cycles.iter()).unwrap()
         })
     }
 
     pub fn all_average_corr_coeffs(&self, context: &Context) -> Ref<'_, Vec<f32>> {
         self.all_average_corr_coeffs.get(|| {
-            log::debug!("Data::all_average_corr_coeffs");
+            log::debug!("all_average_corr_coeffs");
 
             let adjusted_cycles = self.adjusted_cycles(context);
             let avg = self.average_adjusted_cycle(context);
@@ -313,12 +314,12 @@ impl ProcessedSignal {
 
     pub fn classified_cycles(&self, context: &Context) -> Ref<'_, Vec<Cycle>> {
         self.classified_cycles.get(|| {
-            log::debug!("Data::classified_cycles");
+            log::debug!("classified_cycles");
 
             let similarities = self.all_average_corr_coeffs(context);
             let adjusted_cycles = self.adjusted_cycles(context);
 
-            adjusted_cycles
+            let result = adjusted_cycles
                 .iter()
                 .zip(similarities.iter())
                 .map(|(cycle, similarity)| {
@@ -328,13 +329,17 @@ impl ProcessedSignal {
                         Classification::Artifact
                     })
                 })
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>();
+
+            log::debug!("classified_cycles: Processed {} cycles", result.len());
+
+            result
         })
     }
 
     pub fn majority_cycle(&self, context: &Context) -> Ref<'_, Cycle> {
         self.majority_cycle.get(|| {
-            log::debug!("Data::majority_cycle");
+            log::debug!("majority_cycle");
             let adjusted_cycles = self.adjusted_cycles(context);
 
             let avg = self.average_adjusted_cycle(context);
@@ -343,12 +348,15 @@ impl ProcessedSignal {
 
             let similar_cycles = classified_cycles
                 .iter()
-                .filter_map(|cycle| cycle.is_normal().then_some(cycle.as_slice()));
+                .filter_map(|cycle| cycle.is_normal().then_some(cycle));
 
-            let majority_cycle = average_cycle(similar_cycles.clone());
+            let majority_cycle = average_cycle(similar_cycles.clone()).unwrap_or_else(|| {
+                log::warn!("Defaulting to the average cycle");
+                avg.clone()
+            });
 
-            // TODO: this case can be avoided by using a better similarity metric based on clustering and artifact detection
-            if majority_cycle.is_empty() {
+            // TODO: this case can be avoided by using an adaptive similarity threshold based on clustering and artifact detection
+            if majority_cycle.as_slice().is_empty() {
                 log::warn!("No similar cycles found");
                 return avg.clone();
             }
@@ -360,7 +368,7 @@ impl ProcessedSignal {
                 adjusted_cycles.len(),
             );
 
-            Cycle::new_virtual(majority_cycle)
+            majority_cycle
         })
     }
 

@@ -1,3 +1,5 @@
+use crate::data::Cycle;
+
 pub fn corr_coeff(cycle: &[f32], avg: &[f32]) -> f32 {
     let mean_cycle = average(cycle.iter().map(|x| *x as f64)) as f32;
     let mean_avg = average(avg.iter().map(|x| *x as f64)) as f32;
@@ -17,32 +19,28 @@ pub fn corr_coeff(cycle: &[f32], avg: &[f32]) -> f32 {
     sum1 / (sum2 * sum3).sqrt()
 }
 
-pub fn average_cycle<'a>(mut cycles: impl Iterator<Item = &'a [f32]>) -> Vec<f32> {
-    let Some(first) = cycles.next() else {
-        return vec![];
-    };
+pub fn average_cycle<'a>(mut cycles: impl Iterator<Item = &'a Cycle>) -> Option<Cycle> {
+    let first = cycles.next()?;
 
-    if first.is_empty() {
-        return vec![];
+    if first.as_slice().is_empty() {
+        return None;
     }
 
     let mut count = 1;
-    let mut average = first.to_vec();
+    let mut average = first.as_slice().to_vec();
 
     for cycle in cycles {
         count += 1;
-        for (avg, sample) in average.iter_mut().zip(cycle.iter()) {
+        for (avg, sample) in average.iter_mut().zip(cycle.as_slice().iter()) {
             *avg += *sample;
         }
     }
 
-    let first = average[0] / count as f32;
     for avg in average.iter_mut() {
         *avg /= count as f32;
-        *avg -= first;
     }
 
-    average
+    Some(Cycle::new_virtual(average))
 }
 
 pub fn adjust_time(cycle: &[f32], average: &[f32]) -> isize {

@@ -1,5 +1,6 @@
 use std::{
     cell::Ref,
+    fmt::Debug,
     fs,
     path::{Path, PathBuf},
     sync::Arc,
@@ -80,6 +81,17 @@ pub struct Cycle {
     pub classification: Classification,
 }
 
+impl Debug for Cycle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Cycle")
+            .field("samples", &self.samples.len())
+            .field("start", &self.start)
+            .field("position", &self.position)
+            .field("end", &self.end)
+            .finish()
+    }
+}
+
 impl Cycle {
     pub fn at(samples: &Arc<[f32]>, idx: usize, rr_samples: usize) -> Option<Self> {
         let pre = rr_samples / 3;
@@ -94,7 +106,7 @@ impl Cycle {
         })
     }
 
-    fn new_virtual(avg: Vec<f32>) -> Self {
+    pub fn new_virtual(avg: Vec<f32>) -> Self {
         Self {
             position: max_pos(&avg).unwrap(),
             start: 0,

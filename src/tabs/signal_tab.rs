@@ -9,7 +9,7 @@ use egui_plot::{AxisBools, GridInput, GridMark, Legend, Line, MarkerShape, PlotP
 use signal_processing::heart_rate::SamplingFrequency;
 
 use crate::{
-    data::{Classification, Cycle, Data},
+    data::{Cycle, Data},
     AppContext, AppTab,
 };
 
@@ -511,9 +511,9 @@ impl SignalSubTab for HrvTab {
         // Poincare plot to visualize heart-rate variability
         let rrs = cycles
             .iter()
-            .map(|cycle| (cycle.position, cycle.classification))
-            .map_windows(|[(xp, xc), (yp, yc)]| {
-                let is_nn = *xc == Classification::Normal && *yc == Classification::Normal;
+            .map(|cycle| (cycle.position, cycle.is_normal()))
+            .map_windows(|[(xp, x_normal), (yp, y_normal)]| {
+                let is_nn = *x_normal && *y_normal;
                 (is_nn, fs.samples_to_s(*yp - *xp) as f64 * 1000.0)
             });
 
