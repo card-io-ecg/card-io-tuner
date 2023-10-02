@@ -33,6 +33,8 @@ pub struct Config {
     pub ignored_start: usize,
     pub ignored_end: usize,
     pub row_width: usize,
+    pub high_pass_cutoff: f32,
+    pub low_pass_cutoff: f32,
 }
 
 impl Default for Config {
@@ -45,6 +47,8 @@ impl Default for Config {
             ignored_start: 0,
             ignored_end: 200,
             row_width: 6000,
+            high_pass_cutoff: 0.75,
+            low_pass_cutoff: 75.0,
         }
     }
 }
@@ -120,16 +124,17 @@ impl ProcessedSignal {
             let mut samples = self.raw_ekg(context).samples().to_vec();
 
             if context.config.high_pass {
-                let high_pass = DynIir::<HighPass, 2>::design(fs, 0.75);
+                let high_pass = DynIir::<HighPass, 2>::design(fs, context.config.high_pass_cutoff);
                 apply_zero_phase_filter(&mut samples, high_pass);
             }
 
             if context.config.low_pass {
-                let low_pass = DynIir::<LowPass, 2>::design(fs, 75.0);
+                let low_pass = DynIir::<LowPass, 2>::design(fs, context.config.low_pass_cutoff);
                 apply_zero_phase_filter(&mut samples, low_pass);
             }
 
             if context.config.pli {
+                // TODO: adaptation blocking needs to be fs aware
                 let pli = PowerLineFilter::<AdaptationBlocking<Sum<1200>, 4, 19>, _, 1>::design(
                     fs,
                     [50.0],
@@ -256,7 +261,7 @@ impl ProcessedSignal {
 
             let all_average = average_cycle(cycles.iter().map(|cycle| cycle.as_slice()));
 
-            // For QRS adjustment, we're using the 50-50 ms window around the peak of the QRS
+            // For QRS adjustment, we're using a smaller window around the peak of the QRS
             let avg_qrs_width = fs.ms_to_samples(40.0);
             let max_pos = max_pos(&all_average).unwrap();
 

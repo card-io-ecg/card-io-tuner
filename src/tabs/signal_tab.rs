@@ -147,9 +147,27 @@ impl SignalTab {
                     ui.vertical(|ui| {
                         ui.heading("Filter");
 
-                        ui.checkbox(&mut config.high_pass, "High-pass filter");
-                        ui.checkbox(&mut config.pli, "PLI filter");
-                        ui.checkbox(&mut config.low_pass, "Low-pass filter");
+                        Grid::new("filters").num_columns(2).show(ui, |ui| {
+                            ui.checkbox(&mut config.high_pass, "High-pass filter");
+                            ui.add(
+                                DragValue::new(&mut config.high_pass_cutoff)
+                                    .speed(0.01)
+                                    .clamp_range(0.01..=f32::INFINITY),
+                            );
+
+                            ui.end_row();
+
+                            ui.checkbox(&mut config.low_pass, "Low-pass filter");
+                            ui.add(
+                                DragValue::new(&mut config.low_pass_cutoff)
+                                    .speed(0.1)
+                                    .clamp_range(0.1..=f32::INFINITY),
+                            );
+                            ui.end_row();
+
+                            ui.checkbox(&mut config.pli, "PLI filter");
+                            ui.end_row();
+                        });
                     });
 
                     #[cfg(feature = "debug")]
