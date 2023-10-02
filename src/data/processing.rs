@@ -14,7 +14,7 @@ use signal_processing::{
 };
 
 use crate::{
-    analysis::{adjust_time, average, average_cycle, cross_correlate, max_pos, similarity},
+    analysis::{adjust_time, average, average_cycle, corr_coeff, max_pos},
     data::{cell::DataCell, Classification, Cycle, Ekg},
 };
 
@@ -300,19 +300,11 @@ impl ProcessedSignal {
 
             let avg = self.average_adjusted_cycle(context);
 
-            let autocorr = cross_correlate(avg.as_slice(), avg.as_slice());
-
             const SIMILARITY_THRESHOLD: f32 = 0.8;
 
             adjusted_cycles
                 .iter()
-                .map(|cycle| {
-                    (
-                        cycle.clone(),
-                        cross_correlate(cycle.as_slice(), avg.as_slice()),
-                    )
-                })
-                .map(|(cycle, xcorr)| (cycle, similarity(xcorr, autocorr)))
+                .map(|cycle| (cycle.clone(), corr_coeff(cycle.as_slice(), avg.as_slice())))
                 .map(|(cycle, similarity)| {
                     cycle.classify(if similarity > SIMILARITY_THRESHOLD {
                         Classification::Normal
@@ -331,7 +323,6 @@ impl ProcessedSignal {
 
             let avg = self.average_adjusted_cycle(context);
 
-            let autocorr = cross_correlate(avg.as_slice(), avg.as_slice());
             let classified_cycles = self.classified_cycles(context);
 
             let similar_cycles = classified_cycles
@@ -348,10 +339,7 @@ impl ProcessedSignal {
 
             log::debug!(
                 "Similarity with average: {}, based on {}/{} cycles",
-                similarity(
-                    cross_correlate(majority_cycle.as_slice(), avg.as_slice()),
-                    autocorr
-                ),
+                corr_coeff(majority_cycle.as_slice(), avg.as_slice()),
                 similar_cycles.count(),
                 adjusted_cycles.len(),
             );
