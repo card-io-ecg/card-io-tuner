@@ -35,6 +35,7 @@ pub struct Config {
     pub row_width: usize,
     pub high_pass_cutoff: f32,
     pub low_pass_cutoff: f32,
+    pub similarity_threshold: f32,
 }
 
 impl Default for Config {
@@ -49,6 +50,7 @@ impl Default for Config {
             row_width: 6000,
             high_pass_cutoff: 0.75,
             low_pass_cutoff: 75.0,
+            similarity_threshold: 0.95,
         }
     }
 }
@@ -300,13 +302,11 @@ impl ProcessedSignal {
 
             let avg = self.average_adjusted_cycle(context);
 
-            const SIMILARITY_THRESHOLD: f32 = 0.8;
-
             adjusted_cycles
                 .iter()
                 .map(|cycle| (cycle.clone(), corr_coeff(cycle.as_slice(), avg.as_slice())))
                 .map(|(cycle, similarity)| {
-                    cycle.classify(if similarity > SIMILARITY_THRESHOLD {
+                    cycle.classify(if similarity > context.config.similarity_threshold {
                         Classification::Normal
                     } else {
                         Classification::Artifact

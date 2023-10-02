@@ -173,9 +173,20 @@ impl SignalTab {
                     #[cfg(feature = "debug")]
                     ui.vertical(|ui| {
                         ui.heading("Debug");
-                        Grid::new((&self.label, "debug_opts")).show(ui, |ui| {
-                            ui.checkbox(&mut config.hr_debug, "HR debug");
-                        });
+                        Grid::new((&self.label, "debug_opts"))
+                            .num_columns(2)
+                            .show(ui, |ui| {
+                                ui.checkbox(&mut config.hr_debug, "HR debug");
+                                ui.end_row();
+
+                                ui.label("Similarity threshold");
+                                ui.add(
+                                    DragValue::new(&mut config.similarity_threshold)
+                                        .speed(0.001)
+                                        .clamp_range(0.0..=1.0),
+                                );
+                                ui.end_row();
+                            });
                     });
                 });
             });

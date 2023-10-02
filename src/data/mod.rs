@@ -241,6 +241,8 @@ impl Data {
         let ignored_end_changed = old.ignored_end != self.context.config.ignored_end;
         let high_pass_cutoff_changed = old.high_pass_cutoff != self.context.config.high_pass_cutoff;
         let low_pass_cutoff_changed = old.low_pass_cutoff != self.context.config.low_pass_cutoff;
+        let similarity_threshold_changed =
+            old.similarity_threshold != self.context.config.similarity_threshold;
         // let row_width_changed = old.row_width != self.context.config.row_width;
 
         let reprocess = high_pass_changed
@@ -250,7 +252,8 @@ impl Data {
             || ignored_start_changed
             || ignored_end_changed
             || high_pass_cutoff_changed
-            || low_pass_cutoff_changed;
+            || low_pass_cutoff_changed
+            || similarity_threshold_changed;
 
         if reprocess {
             self.clear_processed();
