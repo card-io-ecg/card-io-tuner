@@ -9,6 +9,16 @@ pub struct Matrix<T> {
     data: Vec<T>,
 }
 
+impl<T, const C: usize, const R: usize> From<[[T; C]; R]> for Matrix<T> {
+    fn from(value: [[T; C]; R]) -> Self {
+        Self {
+            rows: R,
+            columns: C,
+            data: value.into_iter().flatten().collect(),
+        }
+    }
+}
+
 impl<T: Default + Copy> Matrix<T> {
     pub fn new(rows: usize, columns: usize) -> Self {
         Self {
