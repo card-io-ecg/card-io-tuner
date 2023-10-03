@@ -13,6 +13,7 @@ use crate::data::processing::{Config, Context, HrData, ProcessedSignal};
 pub mod processing;
 
 mod cell;
+mod matrix;
 mod standard;
 
 #[derive(Clone)]

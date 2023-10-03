@@ -15,7 +15,7 @@ use signal_processing::{
 
 use crate::{
     analysis::{adjust_time, average, average_cycle, corr_coeff, max_pos},
-    data::{cell::DataCell, Classification, Cycle, Ekg},
+    data::{cell::DataCell, matrix::Matrix, Classification, Cycle, Ekg},
 };
 
 pub struct HrData {
@@ -68,7 +68,7 @@ pub struct ProcessedSignal {
     cycles: DataCell<Vec<Cycle>>,
     adjusted_cycles: DataCell<Vec<Cycle>>,
     classified_cycles: DataCell<Vec<Cycle>>,
-    cycle_corr_coeffs: DataCell<Vec<Vec<f32>>>,
+    cycle_corr_coeffs: DataCell<Matrix<f32>>,
     majority_cycle: DataCell<Cycle>,
     rr_intervals: DataCell<Vec<f32>>,
     adjusted_rr_intervals: DataCell<Vec<f32>>,
@@ -295,7 +295,7 @@ impl ProcessedSignal {
         })
     }
 
-    pub fn cycle_corr_coeffs(&self, context: &Context) -> Ref<'_, Vec<Vec<f32>>> {
+    pub fn cycle_corr_coeffs(&self, context: &Context) -> Ref<'_, Matrix<f32>> {
         self.cycle_corr_coeffs.get(|| {
             log::debug!("cycle_corr_coeffs");
 
@@ -310,28 +310,23 @@ impl ProcessedSignal {
                     .unwrap_or(cycle.clone())
             });
 
-            let mut result = vec![vec![0.0; cycles.len()]; cycles.len()];
+            let mut result = Matrix::<f32>::new(cycles.len(), cycles.len());
 
             let mut enumerated_cycles = cycles.enumerate();
             while let Some((x, cycle_a)) = enumerated_cycles.next() {
-                result[x][x] = 1.0;
+                result[(x, x)] = 1.0;
 
                 let mut row = enumerated_cycles.clone();
                 while let Some((y, cycle_b)) = row.next() {
                     let cc = corr_coeff(cycle_a.as_slice(), cycle_b.as_slice());
                     debug_assert!(!cc.is_nan());
-                    result[x][y] = cc;
-                    result[y][x] = cc;
+                    result[(x, y)] = cc;
+                    result[(y, x)] = cc;
                 }
             }
 
             // pretty-print matrix
-            // for row in result.iter() {
-            //     for col in row.iter() {
-            //         print!("{:.2} ", col);
-            //     }
-            //     println!();
-            // }
+            // log::debug!("{:?}", result);
 
             result
         })
@@ -344,8 +339,7 @@ impl ProcessedSignal {
             let cycles = self.cycles(context);
 
             let coeff_mtx = self.cycle_corr_coeffs(context);
-            let coeff_mtx_cols = (0..coeff_mtx.len())
-                .map(|col_idx| average(coeff_mtx.iter().map(|row| row[col_idx])));
+            let coeff_mtx_cols = coeff_mtx.iter_columns().map(|col| average(col));
 
             let result = cycles
                 .iter()
