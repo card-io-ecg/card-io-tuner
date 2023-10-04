@@ -22,6 +22,13 @@ impl GroupMap {
     pub fn similar_count(&self, cycle: usize) -> usize {
         self.counts.get(self.map[cycle]).copied().unwrap_or(0)
     }
+
+    pub fn group(&self, group_idx: usize) -> Group<'_> {
+        Group {
+            map: self,
+            index: group_idx,
+        }
+    }
 }
 
 impl Index<usize> for GroupMap {

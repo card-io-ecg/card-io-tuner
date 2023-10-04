@@ -405,7 +405,7 @@ impl SignalSubTab for EkgTab {
                             .map(|idx| classified_cycles[idx].position)
                             .map(|idx| (idx, ekg_data.samples[idx] as f64)),
                         CYCLE_GROUP_COLORS[group_idx % CYCLE_GROUP_COLORS.len()],
-                        format!("Group {}", group_idx),
+                        format!("Group {} (cycles: {})", group_idx, group.len()),
                     );
                 }
 
@@ -595,6 +595,7 @@ impl SignalSubTab for CycleTab {
         let mut lines = vec![];
 
         let fs = data.fs();
+        let groups = data.cycle_groups();
         let mut add_cycle = |cycle: &Cycle, name: String, color: Color32| {
             let offset = fs.samples_to_s(cycle.position) as f64;
             lines.push(
@@ -616,7 +617,11 @@ impl SignalSubTab for CycleTab {
         for (group, average) in data.average_cycles().iter().enumerate() {
             add_cycle(
                 average,
-                format!("Group {} average", group),
+                format!(
+                    "Group {} average (cycles: {})",
+                    group,
+                    groups.group(group).len()
+                ),
                 CYCLE_GROUP_COLORS[group % CYCLE_GROUP_COLORS.len()],
             );
         }
