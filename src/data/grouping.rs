@@ -53,46 +53,47 @@ impl Group<'_> {
 }
 
 pub fn group_cycles(data: &Matrix<f32>, threshold: f32) -> GroupMap {
-    let mut group_map: Vec<usize> = vec![0; data.rows()];
+    let mut group_map: Vec<usize> = vec![usize::MAX; data.rows()];
     let mut group_counts: Vec<usize> = vec![];
     let mut group_count = 0;
 
-    for idx in 0..data.rows() {
+    for cycle_idx in 0..data.rows() {
         let (_, target_group) = (0..group_count).fold(
             (f32::MAX, usize::MAX),
             |(min_distance, target_group), current_group| {
                 let mut cycles_in_group = 0;
                 let mut sum = 0.0;
 
-                for other in &group_map {
-                    if *other == current_group {
+                for (other_cycle, other_group) in group_map.iter().take(cycle_idx).enumerate() {
+                    if *other_group == current_group {
                         cycles_in_group += 1;
-                        sum += data[(idx, *other)];
+                        sum += data[(cycle_idx, other_cycle)];
                     }
                 }
 
                 let avg = sum / cycles_in_group as f32;
 
                 if avg >= threshold && avg < min_distance {
-                    return (avg, current_group);
+                    (avg, current_group)
+                } else {
+                    (min_distance, target_group)
                 }
-
-                (min_distance, target_group)
             },
         );
 
-        if target_group != usize::MAX {
-            group_counts[target_group] += 1;
-            group_map[idx] = target_group;
-        } else {
-            group_map[idx] = group_count;
-            group_counts.push(1);
+        if target_group == usize::MAX {
+            // create a new group
+            group_map[cycle_idx] = group_count;
             group_count += 1;
+            group_counts.push(1);
+        } else {
+            group_counts[target_group] += 1;
+            group_map[cycle_idx] = target_group;
         }
     }
 
-    println!("group map: {:?}", group_map);
-    println!("group counts: {:?}", group_counts);
+    log::debug!("group map: {:?}", group_map);
+    log::debug!("group counts: {:?}", group_counts);
 
     GroupMap {
         map: group_map,
@@ -138,8 +139,43 @@ mod test {
 
         assert_eq!(
             result.map,
-            [0, 0, 0, 0, 0, 0, 0, 1, 2, 1, 0, 0, 0, 1, 1, 1, 0, 3, 0, 0, 0, 1]
+            [0, 0, 0, 0, 0, 0, 0, 1, 2, 0, 0, 0, 0, 0, 0, 1, 1, 3, 1, 1, 1, 1]
         );
-        assert_eq!(result.counts, [14, 6, 1, 1]);
+        assert_eq!(result.counts, [13, 7, 1, 1]);
+    }
+
+    #[test]
+    fn test2() {
+        #[rustfmt::skip]
+        let values: [[f32; 18]; 18] = [
+            [1.0, 0.445, 0.817, 0.565, 0.828, 0.859, 0.810, 0.816, 0.819, 0.859, 0.473, 0.773, 0.761, 0.824, 0.806, 0.820, 0.820, -0.158],
+            [0.445, 1.0, 0.400, 0.167, 0.385, 0.434, 0.425, 0.433, 0.390, 0.436, 0.602, 0.293, 0.398, 0.449, 0.418, 0.423, 0.437, 0.102],
+            [0.817, 0.400, 1.0, 0.891, 0.991, 0.976, 0.975, 0.987, 0.990, 0.978, 0.484, 0.964, 0.985, 0.981, 0.987, 0.985, 0.988, -0.008],
+            [0.565, 0.167, 0.891, 1.0, 0.878, 0.865, 0.896, 0.885, 0.895, 0.853, 0.338, 0.940, 0.911, 0.839, 0.903, 0.886, 0.885, -0.031],
+            [0.828, 0.385, 0.991, 0.878, 1.0, 0.974, 0.964, 0.981, 0.987, 0.983, 0.470, 0.961, 0.981, 0.985, 0.983, 0.983, 0.983, -0.005],
+            [0.859, 0.434, 0.976, 0.865, 0.974, 1.0, 0.982, 0.988, 0.987, 0.980, 0.522, 0.963, 0.970, 0.972, 0.988, 0.988, 0.986, -0.071],
+            [0.810, 0.425, 0.975, 0.896, 0.964, 0.982, 1.0, 0.988, 0.985, 0.974, 0.489, 0.972, 0.977, 0.965, 0.988, 0.981, 0.987, -0.085],
+            [0.816, 0.433, 0.987, 0.885, 0.981, 0.988, 0.988, 1.0, 0.993, 0.982, 0.501, 0.966, 0.989, 0.984, 0.993, 0.992, 0.992, -0.030],
+            [0.819, 0.390, 0.990, 0.895, 0.987, 0.987, 0.985, 0.993, 1.0, 0.985, 0.473, 0.974, 0.989, 0.984, 0.992, 0.990, 0.990, -0.057],
+            [0.859, 0.436, 0.978, 0.853, 0.983, 0.980, 0.974, 0.982, 0.985, 1.0, 0.476, 0.951, 0.977, 0.984, 0.978, 0.987, 0.976, -0.096],
+            [0.473, 0.602, 0.484, 0.338, 0.470, 0.522, 0.489, 0.501, 0.473, 0.476, 1.0, 0.405, 0.468, 0.496, 0.502, 0.498, 0.506, 0.143],
+            [0.773, 0.293, 0.964, 0.940, 0.961, 0.963, 0.972, 0.966, 0.974, 0.951, 0.405, 1.0, 0.965, 0.940, 0.973, 0.960, 0.966, -0.088],
+            [0.761, 0.398, 0.985, 0.911, 0.981, 0.970, 0.977, 0.989, 0.989, 0.977, 0.468, 0.965, 1.0, 0.983, 0.987, 0.986, 0.983, -0.015],
+            [0.824, 0.449, 0.981, 0.839, 0.985, 0.972, 0.965, 0.984, 0.984, 0.984, 0.496, 0.940, 0.983, 1.0, 0.976, 0.980, 0.979, -0.024],
+            [0.806, 0.418, 0.987, 0.903, 0.983, 0.988, 0.988, 0.993, 0.992, 0.978, 0.502, 0.973, 0.987, 0.976, 1.0, 0.991, 0.992, -0.019],
+            [0.820, 0.423, 0.985, 0.886, 0.983, 0.988, 0.981, 0.992, 0.990, 0.987, 0.498, 0.960, 0.986, 0.980, 0.991, 1.0, 0.986, -0.040],
+            [0.820, 0.437, 0.988, 0.885, 0.983, 0.986, 0.987, 0.992, 0.990, 0.976, 0.506, 0.966, 0.983, 0.979, 0.992, 0.986, 1.0, -0.005],
+            [-0.158, 0.102, -0.008, -0.031, -0.005, -0.071, -0.085, -0.030, -0.057, -0.096, 0.143, -0.088, -0.015, -0.024, -0.019, -0.040, -0.005, 1.0],
+        ];
+
+        let matrix = Matrix::from(values);
+
+        let result = group_cycles(&matrix, 0.85);
+
+        assert_eq!(
+            result.map,
+            [0, 1, 2, 2, 2, 0, 0, 0, 0, 2, 3, 0, 0, 2, 0, 0, 2, 4]
+        );
+        assert_eq!(result.counts, [9, 1, 6, 1, 1]);
     }
 }
