@@ -595,7 +595,7 @@ impl SignalSubTab for CycleTab {
         let mut lines = vec![];
 
         let fs = data.fs();
-        let mut add_cycle = |cycle: &Cycle, name: &str, color: Color32| {
+        let mut add_cycle = |cycle: &Cycle, name: String, color: Color32| {
             let offset = fs.samples_to_s(cycle.position) as f64;
             lines.push(
                 Line::new(
@@ -613,7 +613,13 @@ impl SignalSubTab for CycleTab {
         };
 
         // add_cycle(&data.average_cycle(), "Average cycle", Color32::LIGHT_RED);
-        add_cycle(&data.majority_cycle(), "Majority cycle", EKG_COLOR);
+        for (group, average) in data.average_cycles().iter().enumerate() {
+            add_cycle(
+                average,
+                format!("Group {} average", group),
+                CYCLE_GROUP_COLORS[group % CYCLE_GROUP_COLORS.len()],
+            );
+        }
 
         egui_plot::Plot::new(ui.id().with("cycle"))
             .legend(Legend::default())

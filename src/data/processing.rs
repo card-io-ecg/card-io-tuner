@@ -75,7 +75,7 @@ pub struct ProcessedSignal {
     classified_cycles: DataCell<Vec<Cycle>>,
     cycle_corr_coeffs: DataCell<Matrix<f32>>,
     cycle_groups: DataCell<GroupMap>,
-    majority_cycle: DataCell<Cycle>,
+    average_cycles: DataCell<Vec<Cycle>>,
     rr_intervals: DataCell<Vec<f32>>,
     adjusted_rr_intervals: DataCell<Vec<f32>>,
 }
@@ -92,7 +92,7 @@ impl ProcessedSignal {
             classified_cycles: DataCell::new("classified_cycles"),
             cycle_corr_coeffs: DataCell::new("cycle_corr_coeffs"),
             cycle_groups: DataCell::new("cycle_groups"),
-            majority_cycle: DataCell::new("majority_cycle"),
+            average_cycles: DataCell::new("average_cycles"),
             rr_intervals: DataCell::new("rr_intervals"),
             adjusted_rr_intervals: DataCell::new("adjusted_rr_intervals"),
         }
@@ -108,7 +108,7 @@ impl ProcessedSignal {
         self.classified_cycles.clear();
         self.cycle_corr_coeffs.clear();
         self.cycle_groups.clear();
-        self.majority_cycle.clear();
+        self.average_cycles.clear();
         self.rr_intervals.clear();
         self.adjusted_rr_intervals.clear();
     }
@@ -373,26 +373,23 @@ impl ProcessedSignal {
         })
     }
 
-    pub fn majority_cycle(&self, context: &Context) -> Ref<'_, Cycle> {
-        self.majority_cycle.get(|| {
-            log::debug!("majority_cycle");
+    pub fn average_cycles(&self, context: &Context) -> Ref<'_, Vec<Cycle>> {
+        self.average_cycles.get(|| {
+            log::debug!("average_cycles");
 
             let cycles = self.adjusted_cycles(context);
+            let groups = self.cycle_groups(context);
 
-            let majority_cycle =
-                average_cycle(cycles.iter().filter(|cycle| cycle.cycle_group().is_some()))
-                    .unwrap_or_else(|| {
-                        log::warn!("Defaulting to the average cycle");
-                        average_cycle(cycles.iter()).unwrap()
-                    });
+            let mut averages = vec![];
 
-            // TODO: this case can be avoided by using an adaptive similarity threshold based on clustering and artifact detection
-            if majority_cycle.as_slice().is_empty() {
-                log::warn!("No similar cycles found");
-                average_cycle(cycles.iter()).unwrap()
-            } else {
-                majority_cycle
+            for group in groups.iter().filter(|group| group.len() > 1) {
+                let cycles_in_group = group.cycles().map(|idx| &cycles[idx]);
+                if let Some(average) = average_cycle(cycles_in_group) {
+                    averages.push(average);
+                }
             }
+
+            averages
         })
     }
 

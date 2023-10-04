@@ -50,10 +50,6 @@ impl Group<'_> {
     pub fn len(&self) -> usize {
         self.map.counts[self.index]
     }
-
-    pub fn index(&self) -> usize {
-        self.index
-    }
 }
 
 pub fn group_cycles(data: &Matrix<f32>, threshold: f32) -> GroupMap {
@@ -94,6 +90,9 @@ pub fn group_cycles(data: &Matrix<f32>, threshold: f32) -> GroupMap {
             group_count += 1;
         }
     }
+
+    println!("group map: {:?}", group_map);
+    println!("group counts: {:?}", group_counts);
 
     GroupMap {
         map: group_map,
