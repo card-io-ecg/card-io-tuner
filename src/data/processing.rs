@@ -55,7 +55,7 @@ impl Default for Config {
             row_width: 6000,
             high_pass_cutoff: 0.75,
             low_pass_cutoff: 75.0,
-            similarity_threshold: 0.85,
+            similarity_threshold: 0.95,
         }
     }
 }
