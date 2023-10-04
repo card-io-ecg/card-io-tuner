@@ -54,11 +54,11 @@ impl<T: Copy> Matrix<T> {
         row * self.columns + col
     }
 
-    #[allow(dead_code)]
     pub fn row(&self, row: usize) -> Row<'_, T> {
         Row::new(self, row)
     }
 
+    #[allow(dead_code)]
     pub fn column(&self, col: usize) -> Column<'_, T> {
         Column::new(self, col)
     }

@@ -8,11 +8,15 @@ use std::{
 
 use signal_processing::{compressing_buffer::EkgFormat, heart_rate::SamplingFrequency};
 
-use crate::data::processing::{Config, Context, HrData, ProcessedSignal};
+use crate::data::{
+    grouping::GroupMap,
+    processing::{Config, Context, HrData, ProcessedSignal},
+};
 
 pub mod processing;
 
 mod cell;
+mod grouping;
 mod matrix;
 mod standard;
 
@@ -100,7 +104,7 @@ impl Cycle {
             start: idx - pre,
             position: idx,
             end: idx + post,
-            classification: Classification::Normal,
+            classification: Classification::Unknown,
         })
     }
 
@@ -110,7 +114,7 @@ impl Cycle {
             start: 0,
             end: avg.len(),
             samples: Arc::from(avg),
-            classification: Classification::Normal,
+            classification: Classification::Unknown,
         }
     }
 
@@ -121,8 +125,11 @@ impl Cycle {
         }
     }
 
-    pub fn is_normal(&self) -> bool {
-        self.classification == Classification::Normal
+    pub fn cycle_group(&self) -> Option<usize> {
+        match self.classification {
+            Classification::Normal(group) => Some(group),
+            _ => None,
+        }
     }
 
     pub fn as_slice(&self) -> &[f32] {
@@ -156,7 +163,8 @@ impl Cycle {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Classification {
-    Normal,
+    Unknown,
+    Normal(usize),
     Artifact,
 }
 
@@ -219,6 +227,7 @@ impl Data {
     query!(adjusted_rr_intervals: Vec<f32>);
     query!(cycles: Vec<Cycle>);
     query!(adjusted_cycles: Vec<Cycle>);
+    query!(cycle_groups: GroupMap);
     query!(majority_cycle: Cycle);
 
     pub fn avg_hr(&self) -> f64 {

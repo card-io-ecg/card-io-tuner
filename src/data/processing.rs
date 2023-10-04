@@ -15,7 +15,12 @@ use signal_processing::{
 
 use crate::{
     analysis::{adjust_time, average, average_cycle, corr_coeff, max_pos},
-    data::{cell::DataCell, matrix::Matrix, Classification, Cycle, Ekg},
+    data::{
+        cell::DataCell,
+        grouping::{group_cycles, GroupMap},
+        matrix::Matrix,
+        Classification, Cycle, Ekg,
+    },
 };
 
 pub struct HrData {
@@ -69,6 +74,7 @@ pub struct ProcessedSignal {
     adjusted_cycles: DataCell<Vec<Cycle>>,
     classified_cycles: DataCell<Vec<Cycle>>,
     cycle_corr_coeffs: DataCell<Matrix<f32>>,
+    cycle_groups: DataCell<GroupMap>,
     majority_cycle: DataCell<Cycle>,
     rr_intervals: DataCell<Vec<f32>>,
     adjusted_rr_intervals: DataCell<Vec<f32>>,
@@ -85,6 +91,7 @@ impl ProcessedSignal {
             adjusted_cycles: DataCell::new("adjusted_cycles"),
             classified_cycles: DataCell::new("classified_cycles"),
             cycle_corr_coeffs: DataCell::new("cycle_corr_coeffs"),
+            cycle_groups: DataCell::new("cycle_groups"),
             majority_cycle: DataCell::new("majority_cycle"),
             rr_intervals: DataCell::new("rr_intervals"),
             adjusted_rr_intervals: DataCell::new("adjusted_rr_intervals"),
@@ -100,6 +107,7 @@ impl ProcessedSignal {
         self.adjusted_cycles.clear();
         self.classified_cycles.clear();
         self.cycle_corr_coeffs.clear();
+        self.cycle_groups.clear();
         self.majority_cycle.clear();
         self.rr_intervals.clear();
         self.adjusted_rr_intervals.clear();
@@ -264,7 +272,7 @@ impl ProcessedSignal {
             let cycles = self.classified_cycles(context);
 
             let result = if let Some(average) =
-                average_cycle(cycles.iter().filter(|cycle| cycle.is_normal()))
+                average_cycle(cycles.iter().filter(|cycle| cycle.cycle_group().is_some()))
             {
                 log::debug!("Average cycle: {:?}", average);
 
@@ -274,7 +282,7 @@ impl ProcessedSignal {
                 cycles
                     .iter()
                     .filter_map(|cycle| {
-                        if cycle.is_normal() {
+                        if cycle.cycle_group().is_some() {
                             let offset_to_avg = adjust_time(
                                 cycle.middle(2 * avg_qrs_width),
                                 average.middle(avg_qrs_width),
@@ -332,21 +340,29 @@ impl ProcessedSignal {
         })
     }
 
+    pub fn cycle_groups(&self, context: &Context) -> Ref<'_, GroupMap> {
+        self.cycle_groups.get(|| {
+            log::debug!("cycle_groups");
+
+            let coeffs = self.cycle_corr_coeffs(context);
+
+            group_cycles(&coeffs, context.config.similarity_threshold)
+        })
+    }
+
     pub fn classified_cycles(&self, context: &Context) -> Ref<'_, Vec<Cycle>> {
         self.classified_cycles.get(|| {
             log::debug!("classified_cycles");
 
             let cycles = self.cycles(context);
-
-            let coeff_mtx = self.cycle_corr_coeffs(context);
-            let coeff_mtx_cols = coeff_mtx.iter_columns().map(|col| average(col));
+            let groups = self.cycle_groups(context);
 
             let result = cycles
                 .iter()
-                .zip(coeff_mtx_cols)
-                .map(|(cycle, similarity)| {
-                    cycle.classify(if similarity > context.config.similarity_threshold {
-                        Classification::Normal
+                .enumerate()
+                .map(|(cycle_idx, cycle)| {
+                    cycle.classify(if groups.similar_count(cycle_idx) > 1 {
+                        Classification::Normal(groups[cycle_idx])
                     } else {
                         Classification::Artifact
                     })
@@ -365,11 +381,12 @@ impl ProcessedSignal {
 
             let cycles = self.adjusted_cycles(context);
 
-            let majority_cycle = average_cycle(cycles.iter().filter(|cycle| cycle.is_normal()))
-                .unwrap_or_else(|| {
-                    log::warn!("Defaulting to the average cycle");
-                    average_cycle(cycles.iter()).unwrap()
-                });
+            let majority_cycle =
+                average_cycle(cycles.iter().filter(|cycle| cycle.cycle_group().is_some()))
+                    .unwrap_or_else(|| {
+                        log::warn!("Defaulting to the average cycle");
+                        average_cycle(cycles.iter()).unwrap()
+                    });
 
             // TODO: this case can be avoided by using an adaptive similarity threshold based on clustering and artifact detection
             if majority_cycle.as_slice().is_empty() {

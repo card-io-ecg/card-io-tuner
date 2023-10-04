@@ -14,6 +14,11 @@ use crate::{
 };
 
 const EKG_COLOR: Color32 = Color32::from_rgb(100, 150, 250);
+const CYCLE_GROUP_COLORS: [Color32; 3] = [
+    Color32::LIGHT_GREEN,
+    Color32::LIGHT_YELLOW,
+    Color32::LIGHT_GRAY,
+];
 
 struct SignalCharts<'a> {
     lines: &'a mut Vec<Line>,
@@ -301,6 +306,7 @@ impl SignalSubTab for EkgTab {
             let hr_data = data.hrs();
             let ekg_data = data.filtered_ekg();
             let classified_cycles = data.adjusted_cycles();
+            let groups = data.cycle_groups();
 
             let chunk = data.config().row_width.max(1);
 
@@ -353,7 +359,11 @@ impl SignalSubTab for EkgTab {
                     );
                 }
 
-                signals.push(ekg.iter().map(|y| *y as f64), EKG_COLOR, "EKG");
+                signals.push(
+                    ekg.iter().map(|y| *y as f64),
+                    EKG_COLOR,
+                    format!("EKG (HR: {} bpm)", data.avg_hr().round() as i32,),
+                );
 
                 if data.config().hr_debug {
                     signals.push(
@@ -388,19 +398,21 @@ impl SignalSubTab for EkgTab {
                 //     "Raw HR",
                 // );
 
-                signals.push_points(
-                    classified_cycles
-                        .iter()
-                        .filter_map(|cycle| cycle.is_normal().then_some(cycle.position))
-                        .map(|idx| (idx, ekg_data.samples[idx] as f64)),
-                    Color32::LIGHT_GREEN,
-                    format!("HR: {}", data.avg_hr().round() as i32),
-                );
+                for (group_idx, group) in groups.iter().filter(|g| g.len() > 1).enumerate() {
+                    signals.push_points(
+                        group
+                            .cycles()
+                            .map(|idx| classified_cycles[idx].position)
+                            .map(|idx| (idx, ekg_data.samples[idx] as f64)),
+                        CYCLE_GROUP_COLORS[group_idx % CYCLE_GROUP_COLORS.len()],
+                        format!("Group {}", group_idx),
+                    );
+                }
 
                 signals.push_points(
                     classified_cycles
                         .iter()
-                        .filter_map(|cycle| cycle.is_normal().not().then_some(cycle.position))
+                        .filter_map(|cycle| cycle.cycle_group().is_none().then_some(cycle.position))
                         .map(|idx| (idx, ekg_data.samples[idx] as f64)),
                     Color32::LIGHT_RED,
                     "Artifacts",
@@ -511,9 +523,9 @@ impl SignalSubTab for HrvTab {
         // Poincare plot to visualize heart-rate variability
         let rrs = cycles
             .iter()
-            .map(|cycle| (cycle.position, cycle.is_normal()))
+            .map(|cycle| (cycle.position, cycle.cycle_group()))
             .map_windows(|[(xp, x_normal), (yp, y_normal)]| {
-                let is_nn = *x_normal && *y_normal;
+                let is_nn = x_normal.is_some() && y_normal.is_some();
                 (is_nn, fs.samples_to_s(*yp - *xp) as f64 * 1000.0)
             });
 
