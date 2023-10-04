@@ -228,7 +228,7 @@ impl Data {
     query!(cycles: Vec<Cycle>);
     query!(adjusted_cycles: Vec<Cycle>);
     query!(cycle_groups: GroupMap);
-    query!(average_cycles: Vec<Cycle>);
+    query!(average_cycles: Vec<(usize, Cycle)>);
 
     pub fn avg_hr(&self) -> f64 {
         self.processed.avg_hr(&self.context)

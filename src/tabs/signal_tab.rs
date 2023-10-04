@@ -614,15 +614,15 @@ impl SignalSubTab for CycleTab {
         };
 
         // add_cycle(&data.average_cycle(), "Average cycle", Color32::LIGHT_RED);
-        for (group, average) in data.average_cycles().iter().enumerate() {
+        for (displayed_group, (group_idx, average)) in data.average_cycles().iter().enumerate() {
             add_cycle(
                 average,
                 format!(
                     "Group {} average (cycles: {})",
-                    group,
-                    groups.group(group).len()
+                    displayed_group,
+                    groups.group(*group_idx).len()
                 ),
-                CYCLE_GROUP_COLORS[group % CYCLE_GROUP_COLORS.len()],
+                CYCLE_GROUP_COLORS[displayed_group % CYCLE_GROUP_COLORS.len()],
             );
         }
 

@@ -57,6 +57,10 @@ impl Group<'_> {
     pub fn len(&self) -> usize {
         self.map.counts[self.index]
     }
+
+    pub fn index(&self) -> usize {
+        self.index
+    }
 }
 
 pub fn group_cycles(data: &Matrix<f32>, threshold: f32) -> GroupMap {

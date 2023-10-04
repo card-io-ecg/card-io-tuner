@@ -75,7 +75,7 @@ pub struct ProcessedSignal {
     classified_cycles: DataCell<Vec<Cycle>>,
     cycle_corr_coeffs: DataCell<Matrix<f32>>,
     cycle_groups: DataCell<GroupMap>,
-    average_cycles: DataCell<Vec<Cycle>>,
+    average_cycles: DataCell<Vec<(usize, Cycle)>>,
     rr_intervals: DataCell<Vec<f32>>,
     adjusted_rr_intervals: DataCell<Vec<f32>>,
 }
@@ -373,7 +373,7 @@ impl ProcessedSignal {
         })
     }
 
-    pub fn average_cycles(&self, context: &Context) -> Ref<'_, Vec<Cycle>> {
+    pub fn average_cycles(&self, context: &Context) -> Ref<'_, Vec<(usize, Cycle)>> {
         self.average_cycles.get(|| {
             log::debug!("average_cycles");
 
@@ -385,9 +385,11 @@ impl ProcessedSignal {
             for group in groups.iter().filter(|group| group.len() > 1) {
                 let cycles_in_group = group.cycles().map(|idx| &cycles[idx]);
                 if let Some(average) = average_cycle(cycles_in_group) {
-                    averages.push(average);
+                    averages.push((group.index(), average));
                 }
             }
+
+            log::debug!("average_cycles: Processed {} cycles", averages.len());
 
             averages
         })
