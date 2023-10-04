@@ -38,7 +38,7 @@ pub struct Group<'a> {
 }
 
 impl Group<'_> {
-    pub fn cycles(&self) -> impl Iterator<Item = usize> + '_ {
+    pub fn cycles(&self) -> impl Iterator<Item = usize> + Clone + '_ {
         self.map
             .map
             .iter()
@@ -49,6 +49,10 @@ impl Group<'_> {
 
     pub fn len(&self) -> usize {
         self.map.counts[self.index]
+    }
+
+    pub fn index(&self) -> usize {
+        self.index
     }
 }
 

@@ -271,31 +271,29 @@ impl ProcessedSignal {
             let fs = self.fs(context);
             let cycles = self.classified_cycles(context);
 
-            let result = if let Some(average) =
-                average_cycle(cycles.iter().filter(|cycle| cycle.cycle_group().is_some()))
-            {
-                log::debug!("Average cycle: {:?}", average);
+            let mut result = vec![];
 
-                // For QRS adjustment, we're using a smaller window around the peak of the QRS
-                let avg_qrs_width = fs.ms_to_samples(40.0);
+            for group in self.cycle_groups(context).iter() {
+                let cycles_in_group = group.cycles().map(|idx| &cycles[idx]);
+                if let Some(average) = average_cycle(cycles_in_group.clone()) {
+                    log::debug!("Average cycle: {:?}", average);
 
-                cycles
-                    .iter()
-                    .filter_map(|cycle| {
-                        if cycle.cycle_group().is_some() {
-                            let offset_to_avg = adjust_time(
-                                cycle.middle(2 * avg_qrs_width),
-                                average.middle(avg_qrs_width),
-                            );
-                            cycle.offset(offset_to_avg)
-                        } else {
-                            Some(cycle.clone())
-                        }
-                    })
-                    .collect::<Vec<_>>()
-            } else {
-                cycles.clone()
-            };
+                    // For QRS adjustment, we're using a smaller window around the peak of the QRS
+                    let avg_qrs_width = fs.ms_to_samples(40.0);
+
+                    result.extend(cycles_in_group.filter_map(|cycle| {
+                        let offset_to_avg = adjust_time(
+                            cycle.middle(2 * avg_qrs_width),
+                            average.middle(avg_qrs_width),
+                        );
+                        cycle.offset(offset_to_avg)
+                    }))
+                } else {
+                    result.extend(cycles_in_group.cloned())
+                }
+            }
+
+            result.sort_by_key(|c| c.position);
 
             log::debug!("adjusted_cycles: Processed {} cycles", result.len());
 
