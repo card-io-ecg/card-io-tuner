@@ -322,8 +322,7 @@ impl ProcessedSignal {
             while let Some((x, cycle_a)) = enumerated_cycles.next() {
                 result[(x, x)] = 1.0;
 
-                let mut row = enumerated_cycles.clone();
-                while let Some((y, cycle_b)) = row.next() {
+                for (y, cycle_b) in enumerated_cycles.clone() {
                     let cc = corr_coeff(cycle_a.as_slice(), cycle_b.as_slice());
                     debug_assert!(!cc.is_nan());
                     result[(x, y)] = cc;
@@ -421,9 +420,9 @@ impl ProcessedSignal {
     }
 }
 
-fn debias(signal: &mut Vec<f32>) {
+fn debias(signal: &mut [f32]) {
     let first = signal[0];
-    signal.iter_mut().for_each(|x| *x = *x - first);
+    signal.iter_mut().for_each(|x| *x -= first);
 }
 
 fn apply_filter<F: Filter>(signal: &mut Vec<f32>, mut filter: F) {

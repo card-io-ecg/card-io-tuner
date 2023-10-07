@@ -80,12 +80,7 @@ impl LoginData {
 
                             let token = Token::new(&jwt);
 
-                            let response = context
-                                .http_client
-                                .get(context.config.backend_url("validate"))
-                                .header("Authorization", token.header())
-                                .send()
-                                .unwrap();
+                            let response = context.get_auth("validate").unwrap();
 
                             if response.status().is_success() {
                                 log::info!("Logged in. Token: {}", jwt);
@@ -115,7 +110,7 @@ struct DeviceList {
 }
 
 impl DeviceList {
-    fn ui(&self, ui: &mut Ui, context: &mut AppContext) -> Option<RemotePage> {
+    fn ui(&self, ui: &mut Ui, context: &AppContext) -> Option<RemotePage> {
         if ui.button("Reload").clicked() {
             return Some(RemotePage::devices(context));
         }
@@ -152,7 +147,7 @@ impl MeasurementList {
         if let Some(page) = ui
             .horizontal(|ui| {
                 if ui.button("Reload").clicked() {
-                    return Some(RemotePage::measurements(context, &device));
+                    return Some(RemotePage::measurements(context, device));
                 }
                 if ui.button("Back").clicked() {
                     return Some(RemotePage::devices(context));
@@ -184,14 +179,14 @@ This will remove the measurement from the cloud but it will not delete the local
                             );
 
                             if confirm("Delete measurement", message, "Delete", "Don't delete") {
-                                delete_remote_file(&device, &measurement, context);
+                                delete_remote_file(device, measurement, context);
 
-                                new_page = Some(RemotePage::measurements(context, &device));
+                                new_page = Some(RemotePage::measurements(context, device));
                             }
                         }
 
                         if ui.add(clickable_label(measurement)).clicked() {
-                            open_remote_file(&device, &measurement, &file, context);
+                            open_remote_file(device, measurement, file, context);
                         }
                     });
                 },
@@ -202,10 +197,11 @@ This will remove the measurement from the cloud but it will not delete the local
     }
 }
 
-fn delete_remote_file(device: &str, measurement: &str, context: &mut AppContext) {
+fn delete_remote_file(device: &str, measurement: &str, context: &AppContext) {
     let url = context
         .config
         .backend_url(format!("measurements/{device}/{measurement}"));
+
     context
         .http_client
         .delete(url)
@@ -215,25 +211,24 @@ fn delete_remote_file(device: &str, measurement: &str, context: &mut AppContext)
 }
 
 fn open_remote_file(device: &str, measurement: &str, file: &Path, context: &mut AppContext) {
-    let exists = Path::new(file).exists();
-    if exists {
+    if file.exists() {
         log::info!("Already downloaded {device}/{measurement}");
     } else {
         log::info!("Downloading {device}/{measurement}");
-        let ekg = context
-            .http_client
-            .get(
-                context
-                    .config
-                    .backend_url(format!("measurements/{device}/{measurement}")),
-            )
-            .header("Authorization", context.config.auth_token.header())
-            .send()
-            .unwrap()
-            .bytes()
-            .unwrap();
+
+        let Ok(ekg) = context
+            .get_auth(format!("measurements/{device}/{measurement}"))
+            .and_then(|resp| resp.bytes().map_err(|_| ()))
+        else {
+            log::error!("Failed to download measurement");
+            return;
+        };
+
         _ = fs::create_dir_all(file.parent().unwrap());
-        fs::write(file, ekg.as_ref()).unwrap();
+        if fs::write(file, ekg.as_ref()).is_err() {
+            log::error!("Failed to save measurement");
+            return;
+        }
     }
 
     context.send_message(AppMessage::LoadFile(file.to_owned()));
@@ -253,7 +248,10 @@ impl Default for RemotePage {
 
 impl RemotePage {
     fn devices(context: &AppContext) -> RemotePage {
-        match context.load_resource("list_devices") {
+        match context
+            .get_auth("list_devices")
+            .and_then(|resp| resp.json::<DeviceList>().map_err(|_| ()))
+        {
             Ok(devices) => Self::Devices(devices),
             Err(_) => Self::default(),
         }
@@ -262,16 +260,16 @@ impl RemotePage {
     fn measurements(context: &AppContext, device: &str) -> RemotePage {
         fn measurements_impl(context: &AppContext, device: &str) -> Result<MeasurementList, ()> {
             log::info!("Getting measurements for {device}");
-            let mut response =
-                context.load_resource::<RemoteMeasurementList>(format!("measurements/{device}"))?;
+            let mut response = context
+                .get_auth(format!("measurements/{device}"))
+                .and_then(|resp| resp.json::<RemoteMeasurementList>().map_err(|_| ()))?;
 
-            response.measurements.sort();
+            response.measurements.sort_by(|a, b| b.cmp(a));
 
             Ok(MeasurementList {
                 measurements: response
                     .measurements
                     .into_iter()
-                    .rev()
                     .map(|m| {
                         let path = PathBuf::from(format!("data/{device}/{m}"));
                         (m, path)
@@ -288,13 +286,14 @@ impl RemotePage {
 
     fn display(&mut self, ui: &mut Ui, context: &mut AppContext) {
         if self.is_logged_in() {
-            if ui
+            let log_out_clicked = ui
                 .horizontal(|ui| {
                     ui.label("Logged in");
                     ui.button("Log out").clicked()
                 })
-                .inner
-            {
+                .inner;
+
+            if log_out_clicked {
                 context.config.clear_auth_token();
                 *self = Self::default();
                 return;

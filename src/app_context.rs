@@ -1,5 +1,7 @@
-use reqwest::{blocking::Client, redirect::Policy};
-use serde::de::DeserializeOwned;
+use reqwest::{
+    blocking::{Client, Response},
+    redirect::Policy,
+};
 
 use crate::{app_config::AppConfig, AppMessage};
 
@@ -29,7 +31,7 @@ impl AppContext {
         std::mem::take(&mut self.messages).into_iter()
     }
 
-    pub fn load_resource<T: DeserializeOwned>(&self, url: impl AsRef<str>) -> Result<T, ()> {
+    pub fn get_auth(&self, url: impl AsRef<str>) -> Result<Response, ()> {
         if self.config.auth_token.is_empty() {
             return Err(());
         }
@@ -38,8 +40,6 @@ impl AppContext {
             .get(self.config.backend_url(url.as_ref()))
             .header("Authorization", self.config.auth_token.header())
             .send()
-            .map_err(|_| ())?
-            .json::<T>()
             .map_err(|_| ())
     }
 }

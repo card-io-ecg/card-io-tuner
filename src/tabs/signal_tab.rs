@@ -76,16 +76,12 @@ fn generate_grid_marks(input: GridInput, scale: f64, steps: &[i32]) -> Vec<GridM
     let max = (max * scale).ceil() as i32;
 
     for i in min..=max {
-        steps
-            .iter()
-            .copied()
-            .find(|step| i % *step == 0)
-            .map(|step| {
-                marks.push(GridMark {
-                    value: i as f64 / scale,
-                    step_size: step as f64 / scale,
-                })
+        if let Some(step) = steps.iter().copied().find(|step| i % *step == 0) {
+            marks.push(GridMark {
+                value: i as f64 / scale,
+                step_size: step as f64 / scale,
             });
+        }
     }
 
     marks

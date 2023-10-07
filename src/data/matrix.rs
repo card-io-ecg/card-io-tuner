@@ -58,7 +58,6 @@ impl<T: Copy> Matrix<T> {
         Row::new(self, row)
     }
 
-    #[allow(dead_code)]
     pub fn column(&self, col: usize) -> Column<'_, T> {
         Column::new(self, col)
     }
@@ -68,6 +67,7 @@ impl<T: Copy> Matrix<T> {
         (0..self.rows).map(|row| self.row(row))
     }
 
+    #[allow(dead_code)]
     pub fn iter_columns(&self) -> impl Iterator<Item = Column<'_, T>> {
         (0..self.columns).map(|col| self.column(col))
     }

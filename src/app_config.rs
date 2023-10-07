@@ -5,22 +5,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::tabs::remote::Token;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Default, Debug, Deserialize, Serialize)]
 pub struct AppConfig {
     #[serde(default)]
     pub backend_url: String,
 
     #[serde(default)]
     pub auth_token: Token,
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            backend_url: Default::default(),
-            auth_token: Default::default(),
-        }
-    }
 }
 
 impl AppConfig {
