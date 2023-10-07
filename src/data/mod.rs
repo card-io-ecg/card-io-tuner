@@ -18,6 +18,7 @@ pub mod processing;
 mod cell;
 mod grouping;
 mod matrix;
+mod pli_filter;
 mod standard;
 
 #[derive(Clone)]

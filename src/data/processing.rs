@@ -6,11 +6,10 @@ use signal_processing::{
     filter::{
         dyn_iir::DynIir,
         iir::{HighPass, LowPass},
-        pli::{adaptation_blocking::AdaptationBlocking, PowerLineFilter},
+        pli::PowerLineFilter,
         Filter,
     },
     heart_rate::{HeartRateCalculator, SamplingFrequency, SamplingFrequencyExt, Thresholds},
-    moving::sum::Sum,
 };
 
 use crate::{
@@ -19,6 +18,7 @@ use crate::{
         cell::DataCell,
         grouping::{group_cycles, GroupMap},
         matrix::Matrix,
+        pli_filter::DynAdaptationBlocking,
         Classification, Cycle, Ekg,
     },
 };
@@ -144,11 +144,7 @@ impl ProcessedSignal {
             }
 
             if context.config.pli {
-                // TODO: adaptation blocking needs to be fs aware
-                let pli = PowerLineFilter::<AdaptationBlocking<Sum<1200>, 4, 19>, _, 1>::design(
-                    fs,
-                    [50.0],
-                );
+                let pli = PowerLineFilter::<DynAdaptationBlocking, _, 1>::design(fs, [50.0]);
                 apply_filter(&mut samples, pli);
             }
 
