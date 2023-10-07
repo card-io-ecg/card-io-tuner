@@ -41,10 +41,10 @@ impl AppConfig {
 
     pub fn set_auth_token(&mut self, token: Token) {
         self.auth_token = token;
-        self.save();
     }
 
     pub fn clear_auth_token(&mut self) {
-        self.set_auth_token(Token::default())
+        self.set_auth_token(Token::default());
+        self.save();
     }
 }

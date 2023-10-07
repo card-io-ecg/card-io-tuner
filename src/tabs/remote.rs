@@ -54,17 +54,22 @@ impl LoginData {
                     ui.vertical_centered(|ui| {
                         ui.heading("Log in to remote server");
 
-                        egui::Grid::new("login").num_columns(2).show(ui, |ui| {
-                            ui.label("Name:");
-                            ui.text_edit_singleline(&mut self.username);
+                        let sent = egui::Grid::new("login")
+                            .num_columns(2)
+                            .show(ui, |ui| {
+                                ui.label("Name:");
+                                ui.text_edit_singleline(&mut self.username);
 
-                            ui.end_row();
+                                ui.end_row();
 
-                            ui.label("Password:");
-                            ui.add(password(&mut self.password));
-                        });
+                                ui.label("Password:");
+                                let re = ui.add(password(&mut self.password));
 
-                        if ui.button("Sign in").clicked() {
+                                re.lost_focus() && re.ctx.input(|i| i.key_pressed(egui::Key::Enter))
+                            })
+                            .inner;
+
+                        if ui.button("Sign in").clicked() || sent {
                             let mut jwt = String::new();
 
                             _ = context
@@ -78,13 +83,15 @@ impl LoginData {
                                 .unwrap()
                                 .read_to_string(&mut jwt);
 
-                            let token = Token::new(&jwt);
-
-                            let response = context.get_auth("validate").unwrap();
+                            context.config.set_auth_token(Token::new(&jwt));
+                            let Ok(response) = context.get_auth("validate") else {
+                                log::error!("Failed to validate token");
+                                return;
+                            };
 
                             if response.status().is_success() {
                                 log::info!("Logged in. Token: {}", jwt);
-                                context.config.set_auth_token(token);
+                                context.config.save();
                             } else {
                                 log::error!(
                                     "Failed to validate token: {:?}",

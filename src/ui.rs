@@ -63,26 +63,30 @@ pub fn password_ui(ui: &mut Ui, password: &mut String) -> Response {
     // Process ui, change a local copy of the state
     // We want TextEdit to fill entire space, and have button after that, so in that case we can
     // change direction to right_to_left.
-    let result = ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-        // Show the password field:
-        ui.add(TextEdit::singleline(password).password(!show_plaintext));
+    let result = ui
+        .with_layout(Layout::left_to_right(Align::Center), |ui| {
+            // Show the password field:
+            let response = ui.add(TextEdit::singleline(password).password(!show_plaintext));
 
-        // Toggle the `show_plaintext` bool with a button:
-        if ui
-            .add(SelectableLabel::new(show_plaintext, "👁"))
-            .on_hover_text("Show/hide password")
-            .clicked()
-        {
-            show_plaintext = !show_plaintext;
-        }
-    });
+            // Toggle the `show_plaintext` bool with a button:
+            if ui
+                .add(SelectableLabel::new(show_plaintext, "👁"))
+                .on_hover_text("Show/hide password")
+                .clicked()
+            {
+                show_plaintext = !show_plaintext;
+            }
+
+            response
+        })
+        .inner;
 
     // Store the (possibly changed) state:
     ui.data_mut(|d| d.insert_temp(state_id, show_plaintext));
 
     // All done! Return the interaction response so the user can check what happened
     // (hovered, clicked, …) and maybe show a tooltip:
-    result.response
+    result
 }
 
 pub fn password(password: &mut String) -> impl Widget + '_ {
