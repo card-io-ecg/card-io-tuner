@@ -27,11 +27,11 @@ impl Token {
         Self(format!("Bearer {jwt}"))
     }
 
-    fn header(&self) -> &str {
+    pub fn header(&self) -> &str {
         &self.0
     }
 
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 }
@@ -117,7 +117,7 @@ struct DeviceList {
 impl DeviceList {
     fn ui(&self, ui: &mut Ui, context: &mut AppContext) -> Option<RemotePage> {
         if ui.button("Reload").clicked() {
-            return Some(RemotePage::new(context));
+            return Some(RemotePage::devices(context));
         }
 
         let mut new_page = None;
@@ -155,7 +155,7 @@ impl MeasurementList {
                     return Some(RemotePage::measurements(context, &device));
                 }
                 if ui.button("Back").clicked() {
-                    return Some(RemotePage::new(context));
+                    return Some(RemotePage::devices(context));
                 }
 
                 None
@@ -240,113 +240,102 @@ fn open_remote_file(device: &str, measurement: &str, file: &Path, context: &mut 
 }
 
 enum RemotePage {
+    Login(LoginData),
     Devices(DeviceList),
     Measurements(String, MeasurementList),
 }
-impl RemotePage {
-    fn new(context: &AppContext) -> RemotePage {
-        let response = context
-            .http_client
-            .get(context.config.backend_url("list_devices"))
-            .header("Authorization", context.config.auth_token.header())
-            .send()
-            .unwrap()
-            .json::<DeviceList>()
-            .unwrap();
 
-        Self::Devices(response)
+impl Default for RemotePage {
+    fn default() -> Self {
+        Self::Login(LoginData::new())
+    }
+}
+
+impl RemotePage {
+    fn devices(context: &AppContext) -> RemotePage {
+        match context.load_resource("list_devices") {
+            Ok(devices) => Self::Devices(devices),
+            Err(_) => Self::default(),
+        }
     }
 
     fn measurements(context: &AppContext, device: &str) -> RemotePage {
-        log::info!("Getting measurements for {device}");
+        fn measurements_impl(context: &AppContext, device: &str) -> Result<MeasurementList, ()> {
+            log::info!("Getting measurements for {device}");
+            let mut response =
+                context.load_resource::<RemoteMeasurementList>(format!("measurements/{device}"))?;
 
-        let mut response = context
-            .http_client
-            .get(context.config.backend_url(format!("measurements/{device}")))
-            .header("Authorization", context.config.auth_token.header())
-            .send()
-            .unwrap()
-            .json::<RemoteMeasurementList>()
-            .unwrap();
+            response.measurements.sort();
 
-        response.measurements.sort();
-
-        Self::Measurements(
-            device.to_string(),
-            MeasurementList {
+            Ok(MeasurementList {
                 measurements: response
                     .measurements
                     .into_iter()
                     .rev()
-                    .map(|m| (m.clone(), PathBuf::from(format!("data/{device}/{m}"))))
+                    .map(|m| {
+                        let path = PathBuf::from(format!("data/{device}/{m}"));
+                        (m, path)
+                    })
                     .collect(),
-            },
-        )
+            })
+        }
+
+        match measurements_impl(context, device) {
+            Ok(measurements) => Self::Measurements(device.to_string(), measurements),
+            Err(_) => Self::default(),
+        }
     }
-}
 
-enum RemoteState {
-    Login(LoginData),
-    Authenticated(RemotePage),
-}
-
-impl RemoteState {
     fn display(&mut self, ui: &mut Ui, context: &mut AppContext) {
-        match self {
+        if self.is_logged_in() {
+            if ui
+                .horizontal(|ui| {
+                    ui.label("Logged in");
+                    ui.button("Log out").clicked()
+                })
+                .inner
+            {
+                context.config.clear_auth_token();
+                *self = Self::default();
+                return;
+            }
+        }
+
+        let new_page = match self {
             Self::Login(data) => {
                 data.display(ui, context);
 
                 if !context.config.auth_token.is_empty() {
-                    let page = RemotePage::new(context);
-                    *self = Self::Authenticated(page);
+                    Some(Self::devices(context))
+                } else {
+                    None
                 }
             }
 
-            Self::Authenticated(page) => {
-                if ui
-                    .horizontal(|ui| {
-                        ui.label("Logged in");
-                        ui.button("Log out").clicked()
-                    })
-                    .inner
-                {
-                    context.config.clear_auth_token();
-                    *self = Self::Login(LoginData::new());
-                    return;
-                }
+            Self::Devices(devices) => devices.ui(ui, context),
+            Self::Measurements(device, measurements) => measurements.ui(ui, context, device),
+        };
 
-                let mut new_page = None;
-                match page {
-                    RemotePage::Devices(devices) => {
-                        if let Some(page) = devices.ui(ui, context) {
-                            new_page = Some(page);
-                        }
-                    }
-                    RemotePage::Measurements(device, measurements) => {
-                        if let Some(page) = measurements.ui(ui, context, device) {
-                            new_page = Some(page);
-                        }
-                    }
-                }
-
-                if let Some(new_page) = new_page {
-                    *page = new_page;
-                }
-            }
+        if let Some(new_page) = new_page {
+            *self = new_page;
         }
+    }
+
+    fn is_logged_in(&self) -> bool {
+        !matches!(self, Self::Login(_))
     }
 }
 
 pub struct RemoteTab {
     id: Id,
-    state: RemoteState,
+    state: RemotePage,
 }
 
 impl RemoteTab {
     pub fn new_boxed() -> Box<dyn AppTab> {
         Box::new(Self {
             id: Id::new(rand::random::<u64>()),
-            state: RemoteState::Login(LoginData::new()),
+            state: RemotePage::Login(LoginData::new()),
         })
     }
 }
