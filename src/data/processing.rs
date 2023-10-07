@@ -114,22 +114,16 @@ impl ProcessedSignal {
     }
 
     pub fn raw_ekg(&self, context: &Context) -> Ref<'_, Ekg> {
-        self.raw_ekg.get(|| {
-            log::debug!("raw_ekg");
-
-            Ekg {
-                samples: context.raw_ekg.samples.clone(),
-                fs: context.raw_ekg.fs,
-                ignore_start: context.config.ignored_start,
-                ignore_end: context.config.ignored_end,
-            }
+        self.raw_ekg.get(|| Ekg {
+            samples: context.raw_ekg.samples.clone(),
+            fs: context.raw_ekg.fs,
+            ignore_start: context.config.ignored_start,
+            ignore_end: context.config.ignored_end,
         })
     }
 
     pub fn filtered_ekg(&self, context: &Context) -> Ref<'_, Ekg> {
         self.filtered_ekg.get(|| {
-            log::debug!("filtered_ekg");
-
             let fs = self.fs(context).raw();
             let mut samples = self.raw_ekg(context).samples().to_vec();
 
@@ -156,7 +150,6 @@ impl ProcessedSignal {
 
     pub fn fft(&self, context: &Context) -> Ref<'_, Vec<f32>> {
         self.fft.get(|| {
-            log::debug!("fft");
             let mut samples = self
                 .filtered_ekg(context)
                 .samples()
@@ -176,7 +169,6 @@ impl ProcessedSignal {
 
     pub fn hrs(&self, context: &Context) -> Ref<'_, HrData> {
         self.hrs.get(|| {
-            log::debug!("hrs");
             let filtered = self.filtered_ekg(context);
             let fs = self.fs(context).raw();
 
@@ -215,7 +207,6 @@ impl ProcessedSignal {
 
     pub fn rr_intervals(&self, context: &Context) -> Ref<'_, Vec<f32>> {
         self.rr_intervals.get(|| {
-            log::debug!("rr_intervals");
             let fs = self.fs(context);
 
             self.hrs(context)
@@ -228,7 +219,6 @@ impl ProcessedSignal {
 
     pub fn adjusted_rr_intervals(&self, context: &Context) -> Ref<'_, Vec<f32>> {
         self.adjusted_rr_intervals.get(|| {
-            log::debug!("adjusted_rr_intervals");
             let fs = self.fs(context);
 
             self.adjusted_cycles(context)
@@ -241,7 +231,6 @@ impl ProcessedSignal {
 
     pub fn cycles(&self, context: &Context) -> Ref<'_, Vec<Cycle>> {
         self.cycles.get(|| {
-            log::debug!("cycles");
             let filtered = self.filtered_ekg(context);
             let hrs = self.hrs(context);
 
@@ -262,8 +251,6 @@ impl ProcessedSignal {
 
     pub fn adjusted_cycles(&self, context: &Context) -> Ref<'_, Vec<Cycle>> {
         self.adjusted_cycles.get(|| {
-            log::debug!("adjusted_cycles");
-
             let fs = self.fs(context);
             let cycles = self.classified_cycles(context);
 
@@ -299,8 +286,6 @@ impl ProcessedSignal {
 
     pub fn cycle_corr_coeffs(&self, context: &Context) -> Ref<'_, Matrix<f32>> {
         self.cycle_corr_coeffs.get(|| {
-            log::debug!("cycle_corr_coeffs");
-
             let cycles = self.cycles(context);
 
             let search_width = self.fs(context).ms_to_samples(40.0);
@@ -335,8 +320,6 @@ impl ProcessedSignal {
 
     pub fn cycle_groups(&self, context: &Context) -> Ref<'_, GroupMap> {
         self.cycle_groups.get(|| {
-            log::debug!("cycle_groups");
-
             let coeffs = self.cycle_corr_coeffs(context);
 
             group_cycles(&coeffs, context.config.similarity_threshold)
@@ -345,8 +328,6 @@ impl ProcessedSignal {
 
     pub fn classified_cycles(&self, context: &Context) -> Ref<'_, Vec<Cycle>> {
         self.classified_cycles.get(|| {
-            log::debug!("classified_cycles");
-
             let cycles = self.cycles(context);
             let groups = self.cycle_groups(context);
 
@@ -370,8 +351,6 @@ impl ProcessedSignal {
 
     pub fn average_cycles(&self, context: &Context) -> Ref<'_, Vec<(usize, Cycle)>> {
         self.average_cycles.get(|| {
-            log::debug!("average_cycles");
-
             let cycles = self.adjusted_cycles(context);
             let groups = self.cycle_groups(context);
 

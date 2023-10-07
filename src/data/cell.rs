@@ -1,6 +1,7 @@
 use std::{
     cell::{Ref, RefCell},
     process::abort,
+    time::Instant,
 };
 
 pub struct DataCell<T> {
@@ -26,8 +27,14 @@ impl<T> DataCell<T> {
         };
 
         if !is_initialized {
+            let start = Instant::now();
             let mut value = self.data.borrow_mut();
             *value = Some(initializer());
+            log::debug!(
+                "{}: {:.3}ms",
+                self.name,
+                start.elapsed().as_micros() as f32 / 1000.0
+            );
         }
 
         Ref::map(self.data.borrow(), |data| {
