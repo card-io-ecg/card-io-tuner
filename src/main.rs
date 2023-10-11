@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![feature(iter_map_windows)]
+#![feature(generic_arg_infer)]
 
 use std::{env, path::PathBuf};
 

@@ -138,7 +138,7 @@ impl ProcessedSignal {
             }
 
             if context.config.pli {
-                let pli = PowerLineFilter::<DynAdaptationBlocking, _, 1>::design(fs, [50.0]);
+                let pli = PowerLineFilter::<DynAdaptationBlocking, _, _>::design(fs, [50.0, 100.0]);
                 apply_filter(&mut samples, pli);
             }
 
