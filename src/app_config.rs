@@ -5,13 +5,26 @@ use serde::{Deserialize, Serialize};
 
 use crate::tabs::remote::Token;
 
-#[derive(Clone, Default, Debug, Deserialize, Serialize)]
+fn default_backend_url() -> String {
+    String::from("https://stingray-prime-monkey.ngrok-free.app")
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AppConfig {
-    #[serde(default)]
+    #[serde(default = "default_backend_url")]
     pub backend_url: String,
 
     #[serde(default)]
     pub auth_token: Token,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            backend_url: default_backend_url(),
+            auth_token: Default::default(),
+        }
+    }
 }
 
 impl AppConfig {
