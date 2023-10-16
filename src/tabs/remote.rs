@@ -254,14 +254,18 @@ impl Default for RemotePage {
 }
 
 impl RemotePage {
-    fn devices(context: &AppContext) -> RemotePage {
+    fn try_devices(context: &AppContext) -> Option<RemotePage> {
         match context
             .get_auth("list_devices")
             .and_then(|resp| resp.json::<DeviceList>().map_err(|_| ()))
         {
-            Ok(devices) => Self::Devices(devices),
-            Err(_) => Self::default(),
+            Ok(devices) => Some(Self::Devices(devices)),
+            Err(_) => None,
         }
+    }
+
+    fn devices(context: &AppContext) -> RemotePage {
+        Self::try_devices(context).unwrap_or_else(|| Self::default())
     }
 
     fn measurements(context: &AppContext, device: &str) -> RemotePage {
@@ -312,7 +316,7 @@ impl RemotePage {
                 data.display(ui, context);
 
                 if !context.config.auth_token.is_empty() {
-                    Some(Self::devices(context))
+                    Self::try_devices(context)
                 } else {
                     None
                 }
